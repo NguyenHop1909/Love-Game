@@ -9,6 +9,6 @@ export const APP_CONFIG = {
     "📈 Cập nhật tức thì: Kết quả và quà tặng hiện ra ngay sau khi quay cho bé kiểm tra nha! 💓",
     "⏳ Loading 'yêu': Hiệu ứng chờ đợi mới tinh, anh chỉ xin bé 'đợi anh xíu' thôi nè <3",
     "🎯 Tùy chỉnh vòng quay: Bé có thể thay đổi điều kiện và phần thưởng tùy ý trong ô quay. 👑",
-    "Chúc bé yêu của anh luôn vui vẻ và hạnh phúc vf trải nghiệm phiên bản mới này nhé! 🥰",
+    "Chúc bé yêu của anh luôn vui vẻ và hạnh phúc và trải nghiệm phiên bản mới này nhé! 🥰",
   ],
 };
