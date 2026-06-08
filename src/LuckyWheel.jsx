@@ -183,7 +183,8 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
                   textAlign: "center",
                   fontSize: "11px",
                   fontWeight: "bold",
-                  color: "#fff",
+                  color: "#374151", // <--- SỬA THÀNH MÀU NÀY (Xám đậm/Đen)
+                  textShadow: "0 0 2px rgba(255,255,255,0.8)", // <--- THÊM CÁI NÀY ĐỂ CHỮ NỔI BẬT HƠN
                 }}
               >
                 {p.text}
