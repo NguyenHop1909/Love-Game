@@ -148,13 +148,12 @@ function App() {
   // --- 🔥 HÀM XỬ LÝ KẾT QUẢ VÒNG QUAY MAY MẮN ---
   const handleLuckyWheelWin = async (prizeText) => {
     try {
-      audioQuay
+      const audio = new Audio("/xosoMB.wav"); // Đảm bảo file nằm trong thư mục public
+      audio
         .play()
-        .catch((err) =>
-          console.log("Trình duyệt chặn phát tự động, chờ tương tác:", err),
-        );
+        .catch((err) => console.log("Trình duyệt chặn autoplay:", err));
     } catch (e) {
-      console.warn("Chưa load được nhạc ní ơi:", e);
+      console.warn("Lỗi nhạc:", e);
     }
     setLoadingExchange(true);
     try {
