@@ -2,7 +2,7 @@
 export const APP_CONFIG = {
   currentVersion: "1.1.0",
   features: [
-    "🎡 Vòng quay nhân phẩm: Em bé hã đặt vòng quay để anh ấy thử vận may của anh ấy nhé bé yêu ✨",
+    "🎡 Vòng quay nhân phẩm: Em bé hãy đặt vòng quay để anh ấy thử vận may của anh ấy nhé bé yêu ✨",
     "🛠 Admin Panel: Góc quản lý riêng của bé, anh đã tối ưu cho bé dùng thật xịn xò. ⚙️",
     "🌈 Trải nghiệm: Hiệu ứng mới mượt mà, giúp bé thao tác nhanh chóng và thoải mái nhất. 🚀",
     "🎀 Pop-up xịn xò: Thông báo cập nhật phiên bản mới, anh dành riêng cho bé đó. 💌",
