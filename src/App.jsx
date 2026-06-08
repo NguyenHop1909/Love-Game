@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabaseClient.js";
 import Swal from "sweetalert2";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
@@ -57,6 +57,8 @@ function App() {
 
   // Thêm cái State này ở đầu file AdminView
   const [isWheelSettingsOpen, setIsWheelSettingsOpen] = useState(false);
+  // Ref cho âm thanh quay
+  const audioRef = useRef(new Audio("/xosoMB.wav"));
 
   // Đọc cấu hình bảo mật từ file .env
   const idTeleCuaAnh = import.meta.env.VITE_TELE_CHAT_ID_ANH;
@@ -147,14 +149,12 @@ function App() {
 
   // --- 🔥 HÀM XỬ LÝ KẾT QUẢ VÒNG QUAY MAY MẮN ---
   const handleLuckyWheelWin = async (prizeText) => {
-    try {
-      const audio = new Audio("/xosoMB.wav"); // Đảm bảo file nằm trong thư mục public
-      audio
-        .play()
-        .catch((err) => console.log("Trình duyệt chặn autoplay:", err));
-    } catch (e) {
-      console.warn("Lỗi nhạc:", e);
-    }
+    const audio = audioRef.current;
+
+    // 1. Bật nhạc lên
+    audio.currentTime = 0;
+    audio.play().catch((err) => console.log("Trình duyệt chặn autoplay:", err));
+
     setLoadingExchange(true);
     try {
       const soPhieuTieuHao = 2; // Số phiếu dùng để quay theo yêu cầu của ní
@@ -208,9 +208,11 @@ function App() {
       await fetchData();
     } catch (error) {
       console.error("Lỗi vòng quay:", error);
-      Swal.fire("Lỗi vòng quay rồi ní ơi!", error.message, "error");
+      Swal.fire("Lỗi rồi ní ơi!", error.message, "error");
     } finally {
       setLoadingExchange(false);
+      // Tắt nhạc khi xong (nếu cần)
+      audio.pause();
     }
   };
 
@@ -1262,73 +1264,77 @@ function App() {
             top: 0,
             left: 0,
             width: "100%",
-            height: "100%",
+            height: "100%", // Giữ nguyên để che phủ màn hình
             backgroundColor: "rgba(0, 0, 0, 0.3)",
-            backdropFilter: "blur(5px)", // Làm mờ nền cực xinh
+            backdropFilter: "blur(5px)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             zIndex: 9999,
-            animation: "fadeIn 0.3s ease-in-out", // Hiệu ứng mờ dần hiện ra
+            padding: "10px", // Thêm padding để trên đt không bị sát mép
           }}
         >
           <div
             style={{
               backgroundColor: "#fff",
-              padding: "35px",
-              borderRadius: "30px", // Bo góc tròn trịa
+              padding: "25px", // Giảm nhẹ padding trên đt
+              borderRadius: "30px",
               maxWidth: "380px",
-              width: "90%",
-              textAlign: "center",
-              boxShadow: "0 20px 40px rgba(0,0,0,0.15)", // Đổ bóng nhẹ nhàng
-              border: "4px solid #fde8e8", // Viền màu pastel đáng yêu
+              width: "100%",
+              maxHeight: "85vh", // QUAN TRỌNG: Chỉ cao tối đa 85% màn hình
+              display: "flex",
+              flexDirection: "column", // Để các phần tử xếp chồng
+              boxShadow: "0 20px 40px rgba(0,0,0,0.15)",
+              border: "4px solid #fde8e8",
             }}
           >
-            <div style={{ fontSize: "50px", marginBottom: "10px" }}>✨</div>{" "}
-            {/* Icon xinh xinh */}
+            <div style={{ fontSize: "40px", marginBottom: "5px" }}>✨</div>
             <h2
               style={{
                 color: "#ff6b6b",
-                margin: "0 0 15px 0",
+                margin: "0 0 10px 0",
                 fontFamily: "cursive",
               }}
             >
               Phiên bản {APP_CONFIG.currentVersion}
             </h2>
-            <ul
-              style={{
-                paddingLeft: "20px",
-                color: "#666",
-                textAlign: "left",
-                lineHeight: "1.6",
-              }}
-            >
-              {APP_CONFIG.features.map((item, index) => (
-                <li key={index} style={{ marginBottom: "10px" }}>
-                  {item}
-                </li>
-              ))}
-            </ul>
+
+            {/* KHU VỰC CUỘN: Ní thêm cái div này bọc ngoài ul */}
+            <div style={{ flex: 1, overflowY: "auto", textAlign: "left" }}>
+              <ul
+                style={{
+                  paddingLeft: "20px",
+                  color: "#666",
+                  lineHeight: "1.6",
+                  margin: 0,
+                }}
+              >
+                {APP_CONFIG.features.map((item, index) => (
+                  <li key={index} style={{ marginBottom: "8px" }}>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
             <button
               onClick={() => {
                 localStorage.setItem("appVersion", APP_CONFIG.currentVersion);
                 setShowUpdateModal(false);
               }}
               style={{
-                marginTop: "25px",
+                marginTop: "20px",
                 padding: "12px 30px",
-                backgroundColor: "#ff9a9e", // Màu gradient hồng pastel
+                backgroundColor: "#ff9a9e",
                 background: "linear-gradient(to right, #ff9a9e, #fad0c4)",
                 color: "white",
                 border: "none",
-                borderRadius: "50px", // Nút bo tròn như viên kẹo
+                borderRadius: "50px",
                 fontSize: "16px",
                 fontWeight: "bold",
                 cursor: "pointer",
-                transition: "transform 0.2s",
+                flexShrink: 0, // Đảm bảo nút không bị bóp méo
               }}
-              onMouseOver={(e) => (e.target.style.transform = "scale(1.05)")}
-              onMouseOut={(e) => (e.target.style.transform = "scale(1)")}
             >
               Chốt đơn thôi! 💖
             </button>
