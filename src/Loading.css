@@ -1,0 +1,83 @@
+.cute-loading-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  width: 100%;
+  gap: 15px;
+  padding: 20px;
+}
+
+/* Hiệu ứng trái tim đập */
+.cute-heart {
+  font-size: 50px;
+  animation: heartBeat 1.2s infinite ease-in-out;
+  filter: drop-shadow(0 4px 6px rgba(244, 63, 94, 0.2));
+}
+
+/* Trạng thái button khi đang loading */
+.btn-loading {
+  position: relative;
+  color: transparent !important; /* Giấu chữ tạm thời */
+  pointer-events: none; /* Chặn click khi đang load */
+}
+
+/* Tạo vòng xoay xoay nhỏ cute */
+.btn-loading::after {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: auto;
+  border: 2px solid transparent;
+  border-top-color: currentColor; /* Lấy theo màu chữ của button */
+  border-radius: 50%;
+  animation: button-spinner 0.6s linear infinite;
+}
+
+@keyframes button-spinner {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes heartBeat {
+  0% { transform: scale(1); }
+  14% { transform: scale(1.3); }
+  28% { transform: scale(1); }
+  42% { transform: scale(1.3); }
+  70% { transform: scale(1); }
+}
+
+/* Chữ loading nhảy nhót */
+.cute-loading-text {
+  font-size: 16px;
+  color: #f43f5e;
+  font-weight: bold;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  letter-spacing: 1px;
+}
+
+.cute-loading-text span {
+  display: inline-block;
+  animation: bounceText 0.6s infinite alternate;
+}
+
+/* Làm cho từng chữ cái nhảy lệch nhịp nhau */
+.cute-loading-text span:nth-child(2) { animation-delay: 0.1s; }
+.cute-loading-text span:nth-child(3) { animation-delay: 0.2s; }
+.cute-loading-text span:nth-child(4) { animation-delay: 0.3s; }
+.cute-loading-text span:nth-child(5) { animation-delay: 0.4s; }
+.cute-loading-text span:nth-child(6) { animation-delay: 0.5s; }
+.cute-loading-text span:nth-child(7) { animation-delay: 0.6s; }
+
+@keyframes bounceText {
+  100% {
+    transform: translateY(-8px);
+    color: #fda4af;
+  }
+}
