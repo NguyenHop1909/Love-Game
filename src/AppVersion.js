@@ -2,6 +2,6 @@
 export const APP_CONFIG = {
   currentVersion: "1.1.1",
   features: [
-    "🎡 Sửa bug vòng quay: Đã fix trừ đúng số phiếu"
+    "🎡 Cập nhật hệ thống vòng quay: Sửa lỗi hiển thị và đảm bảo khấu trừ chính xác số phiếu quay"
   ],
 };
