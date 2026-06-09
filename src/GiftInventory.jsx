@@ -10,6 +10,7 @@ export default function GiftInventory() {
     const fetchInventory = async () => {
         setLoading(true);
         try {
+            // Vì hễ xài là xóa nên trong DB chỉ toàn quà chưa xài, cứ lấy hết ra nhen ní
             const { data, error } = await supabase
                 .from("user_inventory")
                 .select("*")
@@ -24,7 +25,7 @@ export default function GiftInventory() {
         }
     };
 
-    // Tự động tải quà khi mở trang và lắng nghe realtime khi có quà mới từ vòng quay
+    // Tự động tải quà khi mở trang và lắng nghe realtime khi có quà mới hoặc bị xóa
     useEffect(() => {
         fetchInventory();
 
@@ -34,7 +35,7 @@ export default function GiftInventory() {
                 "postgres_changes",
                 { event: "*", schema: "public", table: "user_inventory" },
                 () => {
-                    fetchInventory(); // Có biến động là tự động load lại túi quà liền
+                    fetchInventory(); // Có biến động (thêm/xóa) là tự động load lại túi quà liền
                 }
             )
             .subscribe();
@@ -44,11 +45,11 @@ export default function GiftInventory() {
         };
     }, []);
 
-    // 2. Logic khi bấm nút "Sử dụng" món quà
+    // 2. Logic khi bấm nút "Sử dụng" món quà -> XOÁ LUÔN KHỎI DATABASE
     const handleUseGift = async (giftId, giftName) => {
         const result = await Swal.fire({
             title: "Xác nhận sử dụng? 🎁",
-            text: `Ní muốn dùng món quà [${giftName}] này ngay bây giờ hả?`,
+            text: `Ní muốn dùng món quà [${giftName}] này ngay bây giờ hả? (Món quà sẽ biến mất khỏi túi sau khi dùng nhen)`,
             icon: "question",
             showCancelButton: true,
             confirmButtonColor: "#10b981",
@@ -59,23 +60,23 @@ export default function GiftInventory() {
 
         if (result.isConfirmed) {
             try {
-                // Cập nhật trạng thái món quà thành 'Đã sử dụng' trên Supabase
+                // 👉 ĐÃ THAY ĐỔI: Chuyển từ .update() thành .delete() để xóa thẳng tay trên Supabase
                 const { error } = await supabase
                     .from("user_inventory")
-                    .update({ status: "Đã sử dụng" })
+                    .delete()
                     .eq("id", giftId);
 
                 if (error) throw error;
 
                 Swal.fire({
                     title: "Sử dụng thành công! 🎉",
-                    text: `Đã kích hoạt món quà: ${giftName}. Hãy liên hệ Công chúa để nhận quà đời thực nhen!`,
+                    text: `Đã kích hoạt: ${giftName}. Hãy liên hệ Công chúa để nhận quà đời thực nhen!`,
                     icon: "success",
                     confirmButtonColor: "#ff85c0"
                 });
 
-                // Tải lại túi quà
-                fetchInventory();
+                // Hàm fetchInventory() sẽ tự chạy lại nhờ cổng Realtime ở trên nên ní không lo bị delay giao diện nhé
+
             } catch (error) {
                 Swal.fire("Lỗi rồi ní ơi!", error.message, "error");
             }
@@ -108,7 +109,7 @@ export default function GiftInventory() {
                     gap: "10px"
                 }}
             >
-                🎒 Túi Đồ Tích Lũy Nhân Phẩm ({inventory.filter(i => i.status !== "Đã sử dụng").length})
+                🎒 Túi Đồ Tích Lũy Nhân Phẩm ({inventory.length})
             </h2>
 
             {loading ? (
@@ -120,81 +121,56 @@ export default function GiftInventory() {
                 </div>
             ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "400px", overflowY: "auto", paddingRight: "5px" }}>
-                    {inventory.map((item) => {
-                        const isUsed = item.status === "Đã sử dụng";
-                        return (
-                            <div
-                                key={item.id}
-                                style={{
-                                    display: "flex",
-                                    justifyContent: "flex-between",
-                                    alignItems: "center",
-                                    padding: "12px 15px",
-                                    background: isUsed ? "#e5e7eb" : "white",
-                                    borderRadius: "15px",
-                                    boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
-                                    border: isUsed ? "1px solid #d1d5db" : "1px solid #fbcfe8",
-                                    gap: "15px",
-                                    transition: "all 0.2s"
-                                }}
-                            >
-                                {/* Icon và Tên Quà */}
-                                <div style={{ flex: 1 }}>
-                                    <div
-                                        style={{
-                                            fontWeight: "bold",
-                                            fontSize: "15px",
-                                            color: isUsed ? "#9ca3af" : "#1f2937",
-                                            textDecoration: isUsed ? "line-through" : "none"
-                                        }}
-                                    >
-                                        {isUsed ? "🎁 " : "✨ "} {item.prize_text}
-                                    </div>
-                                    <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "4px" }}>
-                                        Trúng ngày: {new Date(item.created_at).toLocaleDateString("vi-VN")}
-                                    </div>
+                    {inventory.map((item) => (
+                        <div
+                            key={item.id}
+                            style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                padding: "12px 15px",
+                                background: "white",
+                                borderRadius: "15px",
+                                boxShadow: "0 4px 6px rgba(0,0,0,0.05)",
+                                border: "1px solid #fbcfe8",
+                                gap: "15px",
+                                transition: "all 0.2s"
+                            }}
+                        >
+                            {/* Tên Quà */}
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: "bold", fontSize: "15px", color: "#1f2937" }}>
+                                    ✨ {item.prize_text}
                                 </div>
-
-                                {/* Trạng thái / Nút Bấm */}
-                                <div>
-                                    {isUsed ? (
-                                        <span
-                                            style={{
-                                                padding: "6px 12px",
-                                                background: "#9ca3af",
-                                                color: "white",
-                                                borderRadius: "20px",
-                                                fontSize: "12px",
-                                                fontWeight: "bold"
-                                            }}
-                                        >
-                                            ✓ Đã xài
-                                        </span>
-                                    ) : (
-                                        <button
-                                            onClick={() => handleUseGift(item.id, item.prize_text)}
-                                            style={{
-                                                padding: "8px 16px",
-                                                background: "linear-gradient(135deg, #ec4899, #db2777)",
-                                                color: "white",
-                                                border: "none",
-                                                borderRadius: "20px",
-                                                fontSize: "12px",
-                                                fontWeight: "bold",
-                                                cursor: "pointer",
-                                                boxShadow: "0 4px 10px rgba(219,39,119,0.3)",
-                                                transition: "transform 0.1s"
-                                            }}
-                                            onMouseOver={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-                                            onMouseOut={(e) => (e.currentTarget.style.transform = "scale(1)")}
-                                        >
-                                            Sử dụng 🚀
-                                        </button>
-                                    )}
+                                <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "4px" }}>
+                                    Trúng ngày: {new Date(item.created_at).toLocaleDateString("vi-VN")}
                                 </div>
                             </div>
-                        );
-                    })}
+
+                            {/* Nút Bấm Sử dụng */}
+                            <div>
+                                <button
+                                    onClick={() => handleUseGift(item.id, item.prize_text)}
+                                    style={{
+                                        padding: "8px 16px",
+                                        background: "linear-gradient(135deg, #ec4899, #db2777)",
+                                        color: "white",
+                                        border: "none",
+                                        borderRadius: "20px",
+                                        fontSize: "12px",
+                                        fontWeight: "bold",
+                                        cursor: "pointer",
+                                        boxShadow: "0 4px 10px rgba(219,39,119,0.3)",
+                                        transition: "transform 0.1s"
+                                    }}
+                                    onMouseOver={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
+                                    onMouseOut={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                                >
+                                    Sử dụng 🚀
+                                </button>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
         </div>
