@@ -5,14 +5,16 @@ import { supabase } from "./supabaseClient";
 // Khởi tạo đối tượng Audio từ thư mục public
 const audioQuay = new Audio("/xosoMB.wav");
 
-export default function LuckyWheel({ totalRewards, onWin, loading }) {
+export default function LuckyWheel({ totalRewards, onWin, loading, freeSpins }) {
   const [rotation, setRotation] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
   const [prizes, setPrizes] = useState([]);
   const [spinCost, setSpinCost] = useState(2);
-
+  const [localFreeSpins, setLocalFreeSpins] = useState(0); // Quản lý số lượt quay miễn phí cục bộ
   // Dùng ref để lưu chỉ số trúng thưởng, tránh lỗi closure trong setTimeout
   const currentPrizeIndexRef = useRef(0);
+  const isFreeSpinRef = useRef(false); // Khai báo ref lưu loại lượt quay
+
 
   // 1. Tải cấu hình vòng quay và lắng nghe Realtime thay đổi từ Supabase
   useEffect(() => {
@@ -25,6 +27,7 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
       if (data) {
         setPrizes(data.prizes || []);
         setSpinCost(data.spin_cost || 0);
+        setLocalFreeSpins(data.free_spins || 0);
       }
     };
     fetchSettings();
@@ -46,6 +49,7 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
               : payload.new.prizes;
           setPrizes(newPrizes || []);
           setSpinCost(payload.new.spin_cost || 0);
+          setLocalFreeSpins(payload.new.free_spins || 0);
         }
       )
       .subscribe();
@@ -59,19 +63,31 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
   }, []);
 
   // 2. Hàm xử lý logic quay bánh xe
-  const handleSpin = () => {
+  const handleSpin = (isFreeSpin) => { // Sử dụng nhất quán biến isFreeSpin ở đây
     if (isSpinning || loading || prizes.length === 0) return;
 
-    // Kiểm tra số dư phiếu thưởng thực tế
-    if (totalRewards < spinCost) {
-      Swal.fire({
-        title: "Nghèo quá ní ơi! 💀",
-        text: `Vòng quay nhân phẩm tốn ${spinCost} phiếu/lượt. Ní hiện tại mới có ${totalRewards} phiếu hà!`,
-        icon: "error",
-        confirmButtonColor: "#ff85c0",
-        background: "#fff0f6"
-      });
-      return;
+    // 1. Lưu loại lượt quay vào ref để tí nữa gửi lên App.jsx cho đúng
+    isFreeSpinRef.current = isFreeSpin;
+
+    // 2. Tách biệt logic kiểm tra điều kiện Quay Free và Quay Thường
+    if (isFreeSpin) {
+      // Nếu bấm nút FREE: Kiểm tra xem số lượt quay free nội bộ còn không
+      if (localFreeSpins <= 0) {
+        Swal.fire("Hết lượt free rồi ní!", "Dùng phiếu thưởng để quay tiếp nhen!", "warning");
+        return;
+      }
+    } else {
+      // Nếu bấm nút THƯỜNG: Kiểm tra số dư phiếu thưởng thực tế của user
+      if (totalRewards < spinCost) {
+        Swal.fire({
+          title: "Nghèo quá ní ơi! 💀",
+          text: `Vòng quay nhân phẩm tốn ${spinCost} phiếu/lượt. Ní hiện tại mới có ${totalRewards} phiếu hà!`,
+          icon: "error",
+          confirmButtonColor: "#ff85c0",
+          background: "#fff0f6"
+        });
+        return;
+      }
     }
 
     setIsSpinning(true);
@@ -91,7 +107,7 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
     const targetAngle = 3600 + (360 - randomPrizeIndex * degreesPerPrize - degreesPerPrize / 2);
     setRotation((prev) => prev + targetAngle);
 
-    // Chuẩn chỉnh đồng hồ bấm giờ đúng 10 giây (10000ms) khớp hoàn toàn với CSS transition
+    // Chuẩn chỉnh đồng hồ bấm giờ đúng 13 giây khớp hoàn toàn với CSS transition của ní
     setTimeout(() => {
       // TẮT NHẠC NGAY LẬP TỨC KHI VÒNG QUAY KHỰNG LẠI
       audioQuay.pause();
@@ -102,9 +118,10 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
       // Lấy kết quả phần thưởng từ ref ra và gửi lên App.jsx xử lý
       const finalPrizeIndex = currentPrizeIndexRef.current;
       if (onWin && prizes[finalPrizeIndex]) {
-        onWin(prizes[finalPrizeIndex].text);
+        // Gửi sang file cha: Tên phần thưởng VÀ trạng thái có phải free không
+        onWin(prizes[finalPrizeIndex].text, isFreeSpinRef.current);
       }
-    }, 13000); // Đã đồng bộ chuẩn 10 giây hành trình nhân phẩm nhen ní!
+    }, 13000);
   };
 
   return (
@@ -118,6 +135,15 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
         userSelect: "none",
       }}
     >
+      {/* Khai báo hiệu ứng nhấp nháy chuyển động cho nút Free */}
+      <style>{`
+        @keyframes pulseFreeBtn {
+          0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+          70% { transform: scale(1.04); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+          100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+      `}</style>
+
       {/* KHUNG VIỀN NGOÀI NỔI KHỐI 3D */}
       <div
         style={{
@@ -241,28 +267,58 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
         </div>
       </div>
 
-      {/* NÚT BẤM REALTIME ĐỒNG BỘ CHI PHÍ */}
-      <button
-        onClick={handleSpin}
-        disabled={isSpinning || prizes.length === 0}
-        style={{
-          padding: "12px 35px",
-          backgroundColor: isSpinning ? "#cbd5e1" : "#f43f5e",
-          color: "white",
-          border: "none",
-          borderRadius: "25px",
-          fontWeight: "bold",
-          fontSize: "15px",
-          cursor: isSpinning ? "not-allowed" : "pointer",
-          boxShadow: isSpinning ? "none" : "0 6px 16px rgba(244,63,94,0.4), inset 0 -4px 0 rgba(0,0,0,0.15)",
-          transition: "all 0.1s ease",
-          transform: isSpinning ? "translateY(3px)" : "none"
-        }}
-      >
-        {isSpinning
-          ? "🎲 Đang thử vận may..."
-          : `🎡 Quay Nhân Phẩm (${spinCost} phiếu)`}
-      </button>
+      {/* KHU VỰC CHỨA 2 NÚT BẤM REALTIME TRỰC QUAN */}
+      <div style={{ display: "flex", gap: "15px", flexWrap: "wrap", justifyContent: "center" }}>
+
+        {/* NÚT 1: QUAY MIỄN PHÍ (Sử dụng biến localFreeSpins tự load từ database) */}
+        {localFreeSpins > 0 && (
+          <button
+            onClick={() => handleSpin(true)}
+            disabled={isSpinning || prizes.length === 0}
+            style={{
+              padding: "12px 25px",
+              backgroundColor: isSpinning ? "#cbd5e1" : "#10b981", // Màu xanh lục tươi mát
+              color: "white",
+              border: "none",
+              borderRadius: "25px",
+              fontWeight: "bold",
+              fontSize: "14px",
+              cursor: isSpinning ? "not-allowed" : "pointer",
+              animation: isSpinning ? "none" : "pulseFreeBtn 1.5s infinite", // Hiệu ứng nhấp nháy mời gọi
+              boxShadow: isSpinning ? "none" : "0 6px 16px rgba(16,185,129,0.4), inset 0 -4px 0 rgba(0,0,0,0.15)",
+              transition: "all 0.1s ease",
+              transform: isSpinning && isFreeSpinRef.current ? "translateY(3px)" : "none"
+            }}
+          >
+            {isSpinning && isFreeSpinRef.current
+              ? "🎲 Đang dùng lượt Free..."
+              : `✨ Quay Miễn Phí (Còn ${localFreeSpins} lượt)`}
+          </button>
+        )}
+
+        {/* NÚT 2: QUAY TỐN PHÍEU (Giữ nguyên giao diện gốc của ní) */}
+        <button
+          onClick={() => handleSpin(false)}
+          disabled={isSpinning || prizes.length === 0}
+          style={{
+            padding: "12px 25px",
+            backgroundColor: isSpinning ? "#cbd5e1" : "#f43f5e",
+            color: "white",
+            border: "none",
+            borderRadius: "25px",
+            fontWeight: "bold",
+            fontSize: "14px",
+            cursor: isSpinning ? "not-allowed" : "pointer",
+            boxShadow: isSpinning ? "none" : "0 6px 16px rgba(244,63,94,0.4), inset 0 -4px 0 rgba(0,0,0,0.15)",
+            transition: "all 0.1s ease",
+            transform: isSpinning && !isFreeSpinRef.current ? "translateY(3px)" : "none"
+          }}
+        >
+          {isSpinning && !isFreeSpinRef.current
+            ? "🎲 Đang thử vận may..."
+            : `🎡 Quay Nhân Phẩm (${spinCost} phiếu)`}
+        </button>
+      </div>
     </div>
   );
 }

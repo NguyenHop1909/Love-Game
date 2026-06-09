@@ -7,6 +7,8 @@ import ButtonCute from "./ButtonCute";
 import CuteLoading from "./CuteLoading";
 import LuckyWheel from "./LuckyWheel"; // Import component Vòng Quay Nhân Phẩm
 import { APP_CONFIG } from "./AppVersion"; // Import file cấu hình
+import GiftInventory from "./GiftInventory"; // Import component Túi Đồ Tích Lũy
+import AdminGiftManager from "./AdminGiftManager"; // Import component quản lý quà cho Admin
 
 function App() {
   const navigate = useNavigate();
@@ -67,6 +69,17 @@ function App() {
   const idTeleCuaEm = import.meta.env.VITE_TELE_CHAT_ID_EM;
   const teleBotToken = import.meta.env.VITE_TELE_BOT_TOKEN;
 
+
+  const handleConfirmUsed = async (itemId) => {
+    // Cập nhật trạng thái duyệt quà của người yêu thành Đã sử dụng xong
+    await supabase
+      .from('user_inventory')
+      .update({ status: 'Đã sử dụng' })
+      .eq('id', itemId);
+
+    Swal.fire('Xong liền!', 'Đã xác nhận thực hiện xong đặc quyền này cho người ta!', 'success');
+    // Load lại danh sách bảng admin...
+  };
   // Đặt hàm fetchSettings vào trong useEffect
   useEffect(() => {
     const fetchSettings = async () => {
@@ -207,7 +220,7 @@ function App() {
   };
 
   // --- 🔥 HÀM XỬ LÝ KẾT QUẢ VÒNG QUAY MAY MẮN ---
-  const handleLuckyWheelWin = async (prizeText) => {
+  const handleLuckyWheelWin = async (prizeText, isUsingFreeSpin) => {
     // 1. Dừng nhạc ngay lập tức để không bị phát đè
     if (audioRef.current) {
       audioRef.current.pause();
@@ -216,53 +229,83 @@ function App() {
 
     setLoadingExchange(true);
 
-    // 2. Hiện Popup ngay để người dùng thấy kết quả tức thì
+    // 2. Hiện Popup ăn mừng ngay để người dùng thấy kết quả tức thì
     Swal.fire({
       title: "Vòng quay dừng lại rồi! 🎉",
       html: `
-        <p style="font-size: 18px; font-weight: bold; color: #db2777;">✨ ${prizeText} ✨</p>
-        <p style="font-size: 14px;">Hệ thống đang xử lý phiếu và gửi báo cáo cho Công chúa...</p>
-      `,
+      <p style="font-size: 18px; font-weight: bold; color: #db2777;">✨ ${prizeText} ✨</p>
+      <p style="font-size: 14px;">Hệ thống đang xử lý phiếu và gửi báo cáo cho Công chúa...</p>
+    `,
       icon: "success",
       confirmButtonColor: "#ff85c0",
       background: "#fff0f6",
       confirmButtonText: "Đã rõ! 🧸",
-      allowOutsideClick: false // Không cho bấm ra ngoài để tránh lỗi luồng
+      allowOutsideClick: false // Không cho bấm ra ngoài để tránh lỗi luồng xoay liên tục
     });
 
     try {
-      // 3. Xử lý Logic (Chạy ngầm)
-      const soPhieuTieuHao = spinCost; // Lấy đúng giá trị từ biến State
-      const ngayHomNay = new Date().toISOString().split("T")[0];
-      const reasonText = `🎰 Vòng quay nhân phẩm: Trúng [${prizeText}]`;
+      // 3. Bỏ quà vào Túi đồ (Inventory)
+      // Ní lưu ý: Đảm bảo tên cột trong DB của ní đúng là 'prize_text' nhen!
+      const { error: invError } = await supabase
+        .from('user_inventory')
+        .insert([{ prize_text: prizeText, status: 'Chưa sử dụng' }]);
 
-      // Trừ điểm trong Database
-      const { data: insertedData, error: dbError } = await supabase
-        .from("rewards_penalties")
-        .insert([{
-          date: ngayHomNay,
-          penalty_amount: 0,
-          reward_amount: -soPhieuTieuHao,
-          reward_reason: reasonText
-        }])
-        .select();
+      if (invError) throw invError;
 
-      if (dbError) throw dbError;
+      // 4. Xử lý chi phí lượt quay tách biệt
+      if (isUsingFreeSpin) {
+        // Lấy số lượt free hiện tại trong DB ra trước để trừ đi 1 (Tránh lỗi ép về 0 nếu có nhiều lượt)
+        const { data: wheelData } = await supabase
+          .from('wheel_settings')
+          .select('free_spins')
+          .eq('id', 1)
+          .single();
 
-      // Ghi log & Telegram (Không cần await để tăng tốc độ phản hồi)
-      if (insertedData && insertedData.length > 0) {
-        logAction("INSERT", insertedData[0].id, `Anh yêu dùng ${soPhieuTieuHao} phiếu. Kết quả: ${prizeText}`);
+        const currentFree = wheelData?.free_spins || 1;
+
+        // Tiến hành trừ đi 1 lượt quay miễn phí
+        await supabase
+          .from('wheel_settings')
+          .update({ free_spins: Math.max(0, currentFree - 1) })
+          .eq('id', 1);
+
+        console.log("🎯 Đã trừ thành công 1 lượt quay Free nội bộ!");
+      } else {
+        // Nếu xài điểm: Trừ điểm trong bảng rewards_penalties của ní như cũ
+        // Đảm bảo ở trên đầu file App.jsx ní đã định nghĩa biến `spinCost` rồi nhen
+        const soPhieuTieuHao = spinCost || 2;
+        const ngayHomNay = new Date().toISOString().split("T")[0];
+
+        const { error: penaltyError } = await supabase
+          .from("rewards_penalties")
+          .insert([{
+            date: ngayHomNay,
+            penalty_amount: 0,
+            reward_amount: -soPhieuTieuHao,
+            reward_reason: `🎰 Quay vòng quay: Trúng [${prizeText}]`
+          }]);
+
+        if (penaltyError) throw penaltyError;
+        console.log(`💵 Đã khấu trừ ${soPhieuTieuHao} phiếu thành công!`);
       }
 
-      const tinNhanTele = `🎰 *TÍN HIỆU THỬ THÁCH NHÂN PHẨM!* 🎰\n\nAnh yêu vừa tiêu hao *${soPhieuTieuHao} Phiếu Thưởng*.\n\n🎯 *Kết quả:* ${prizeText}`;
-      callTelegramAPI(idTeleCuaEm, tinNhanTele);
+      // 5. Bắn Telegram báo cáo Công chúa là anh ấy đã quay trúng quà
+      const msg = `🎰 *QUAY TRÚNG QUÀ MỚI!* 🎰\n\nAnh yêu vừa quay trúng: *${prizeText}*\n🎁 Phần thưởng này đã được chuyển vào *Túi Đồ Tích Lũy* của anh ấy rồi nhé công chúa!`;
+      callTelegramAPI(idTeleCuaEm, msg);
 
-      // Cập nhật lại điểm số trên giao diện
-      await fetchData();
+      // 6. Tải lại toàn bộ dữ liệu giao diện (Điểm số mới, Số lượt free còn lại...)
+      if (typeof fetchData === "function") {
+        await fetchData();
+      }
 
     } catch (error) {
-      console.error("Lỗi vòng quay:", error);
-      // Ní có thể thêm Swal.fire lỗi ở đây nếu cần
+      console.error("🚨 Lỗi trong quá trình xử lý phần thưởng:", error);
+      Swal.fire({
+        title: "Hệ thống khựng lại rồi ní! 😿",
+        text: `Lỗi: ${error.message || "Không thể kết nối Supabase, ní kiểm tra lại RLS nha!"}`,
+        icon: "error",
+        confirmButtonColor: "#f43f5e"
+      });
     } finally {
       setLoadingExchange(false);
     }
@@ -1535,6 +1578,10 @@ const AdminView = ({
           </form>
           {messageAdmin && <p style={styles.message}>{messageAdmin}</p>}
         </div>
+        {/* --- CHỈ CẦN THÊM KHÚC NÀY VÀO LÀ XONG --- */}
+        <div className="admin-gift-zone" style={{ marginTop: "40px" }}>
+          <AdminGiftManager />
+        </div>
 
         {/* 2. CẤU HÌNH VÒNG QUAY (Với tính năng Ẩn/Hiện) */}
         <div style={{ marginTop: "30px" }}>
@@ -2144,6 +2191,7 @@ const UserView = ({
   loadingInitial,
   handleLuckyWheelWin,
   spinCost,
+  freeSpins,
 }) => {
   if (loadingInitial) return <CuteLoading />;
 
@@ -2259,7 +2307,10 @@ const UserView = ({
               onWin={handleLuckyWheelWin} // Truyền trúng cổng tiếp nhận kết quả
               loading={loadingExchange}
               spinCost={spinCost}
+              freeSpins={freeSpins}
             />
+
+            <GiftInventory />
           </div>
         </div>
 
