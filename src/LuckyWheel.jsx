@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Swal from "sweetalert2";
 import { supabase } from "./supabaseClient";
 
+// Khởi tạo đối tượng Audio từ thư mục public
 const audioQuay = new Audio("/xosoMB.wav");
 
 export default function LuckyWheel({ totalRewards, onWin, loading }) {
@@ -10,6 +11,10 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
   const [prizes, setPrizes] = useState([]);
   const [spinCost, setSpinCost] = useState(2);
 
+  // Dùng ref để lưu chỉ số trúng thưởng, tránh lỗi closure trong setTimeout
+  const currentPrizeIndexRef = useRef(0);
+
+  // 1. Tải cấu hình vòng quay và lắng nghe Realtime thay đổi từ Supabase
   useEffect(() => {
     const fetchSettings = async () => {
       const { data } = await supabase
@@ -41,54 +46,65 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
               : payload.new.prizes;
           setPrizes(newPrizes || []);
           setSpinCost(payload.new.spin_cost || 0);
-        },
+        }
       )
       .subscribe();
 
-    return () => supabase.removeChannel(channel);
+    return () => {
+      supabase.removeChannel(channel);
+      // Dọn dẹp tắt nhạc hoàn toàn nếu component bị unmount đột ngột
+      audioQuay.pause();
+      audioQuay.currentTime = 0;
+    };
   }, []);
 
+  // 2. Hàm xử lý logic quay bánh xe
   const handleSpin = () => {
     if (isSpinning || loading || prizes.length === 0) return;
+
+    // Kiểm tra số dư phiếu thưởng thực tế
     if (totalRewards < spinCost) {
-      Swal.fire("Nghèo quá ní ơi! 💀", `Cần ${spinCost} phiếu nè!`, "error");
+      Swal.fire({
+        title: "Nghèo quá ní ơi! 💀",
+        text: `Vòng quay nhân phẩm tốn ${spinCost} phiếu/lượt. Ní hiện tại mới có ${totalRewards} phiếu hà!`,
+        icon: "error",
+        confirmButtonColor: "#ff85c0",
+        background: "#fff0f6"
+      });
       return;
     }
 
     setIsSpinning(true);
 
-    // Reset nhạc về đầu trước khi phát
+    // Kích hoạt nhạc nền vòng quay (Reset và bật lặp lại liên tục)
     audioQuay.currentTime = 0;
-    audioQuay.play().catch((err) => console.log("Lỗi phát nhạc:", err));
+    audioQuay.loop = true;
+    audioQuay.play().catch((err) => console.log("Trình duyệt chặn phát nhạc tự động:", err));
 
     const prizeCount = prizes.length;
     const randomPrizeIndex = Math.floor(Math.random() * prizeCount);
+    currentPrizeIndexRef.current = randomPrizeIndex; // Lưu vào ref
+
     const degreesPerPrize = 360 / prizeCount;
 
-    // Xoay thêm 10 vòng + góc ngẫu nhiên (Giữ nguyên 13s khớp với transition)
-    const targetAngle =
-      3600 + (360 - randomPrizeIndex * degreesPerPrize - degreesPerPrize / 2);
+    // Tính toán tọa độ góc xoay chuẩn xác (Quay ít nhất 10 vòng + góc target)
+    const targetAngle = 3600 + (360 - randomPrizeIndex * degreesPerPrize - degreesPerPrize / 2);
     setRotation((prev) => prev + targetAngle);
 
-    // Dùng sự kiện khi nhạc kết thúc để dừng
-    audioQuay.onended = () => {
-      setIsSpinning(false);
-      if (onWin) onWin(prizes[randomPrizeIndex].text);
-      // Hủy sự kiện để tránh chạy lại khi quay lần sau
-      audioQuay.onended = null;
-    };
-
-    // PHÒNG HỜ: Nếu nhạc dài hơn 13s, ép buộc dừng ở 13s
+    // Chuẩn chỉnh đồng hồ bấm giờ đúng 10 giây (10000ms) khớp hoàn toàn với CSS transition
     setTimeout(() => {
-      if (isSpinning) {
-        // Kiểm tra nếu vẫn đang quay thì ép dừng
-        setIsSpinning(false);
-        audioQuay.pause();
-        audioQuay.currentTime = 0;
-        if (onWin) onWin(prizes[randomPrizeIndex].text);
-        audioQuay.onended = null; // Hủy sự kiện onended
+      // TẮT NHẠC NGAY LẬP TỨC KHI VÒNG QUAY KHỰNG LẠI
+      audioQuay.pause();
+      audioQuay.currentTime = 0;
+
+      setIsSpinning(false);
+
+      // Lấy kết quả phần thưởng từ ref ra và gửi lên App.jsx xử lý
+      const finalPrizeIndex = currentPrizeIndexRef.current;
+      if (onWin && prizes[finalPrizeIndex]) {
+        onWin(prizes[finalPrizeIndex].text);
       }
-    }, 12000);
+    }, 13000); // Đã đồng bộ chuẩn 10 giây hành trình nhân phẩm nhen ní!
   };
 
   return (
@@ -99,8 +115,10 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
         alignItems: "center",
         gap: "25px",
         padding: "10px",
+        userSelect: "none",
       }}
     >
+      {/* KHUNG VIỀN NGOÀI NỔI KHỐI 3D */}
       <div
         style={{
           position: "relative",
@@ -116,17 +134,24 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
           justifyContent: "center",
         }}
       >
+        {/* MŨI TÊN ĐỊNH VỊ ĐỈNH 12 GIỜ CHUẨN XÁC */}
         <div
           style={{
             position: "absolute",
             top: "-15px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            width: "0",
+            height: "0",
             borderLeft: "18px solid transparent",
             borderRight: "18px solid transparent",
             borderTop: "32px solid #f43f5e",
+            filter: "drop-shadow(0px 4px 5px rgba(0,0,0,0.3))",
             zIndex: 30,
           }}
         />
 
+        {/* THÂN BÁNH XE XOAY MƯỢT 10 GIÂY CHUẨN CUBIC-BEZIER */}
         <div
           style={{
             width: "100%",
@@ -134,7 +159,7 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
             borderRadius: "50%",
             position: "relative",
             overflow: "hidden",
-            transition: "transform 13s cubic-bezier(0.1, 0.8, 0.1, 1)",
+            transition: 'transform 13s cubic-bezier(0.1, 0.8, 0.1, 1)',
             transform: `rotate(${rotation}deg)`,
             background:
               prizes.length > 0
@@ -142,10 +167,10 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
                 : "#f43f5e",
           }}
         >
-          {/* Vẽ nan quạt linh động */}
+          {/* Vẽ các nan chia ô màu */}
           {prizes.map((_, i) => (
             <div
-              key={i}
+              key={`line-${i}`}
               style={{
                 position: "absolute",
                 width: "2px",
@@ -160,10 +185,10 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
             />
           ))}
 
-          {/* Hiển thị chữ linh động */}
+          {/* Căn chỉnh chữ hiển thị lọt lòng gọn gàng trong ô */}
           {prizes.map((p, i) => (
             <div
-              key={i}
+              key={`text-${i}`}
               style={{
                 position: "absolute",
                 top: 0,
@@ -178,13 +203,16 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
             >
               <div
                 style={{
-                  paddingTop: "20px",
+                  paddingTop: "24px",
                   width: "70px",
                   textAlign: "center",
                   fontSize: "11px",
                   fontWeight: "bold",
-                  color: "#374151", // <--- SỬA THÀNH MÀU NÀY (Xám đậm/Đen)
-                  textShadow: "0 0 2px rgba(255,255,255,0.8)", // <--- THÊM CÁI NÀY ĐỂ CHỮ NỔI BẬT HƠN
+                  color: "#374151",
+                  textShadow: "0 0 2px rgba(255,255,255,0.8)",
+                  lineHeight: "1.3",
+                  wordWrap: "break-word",
+                  whiteSpace: "normal"
                 }}
               >
                 {p.text}
@@ -193,13 +221,15 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
           ))}
         </div>
 
+        {/* TÂM TRỤC TRÒN TRÁI TIM CHÂN THỰC */}
         <div
           style={{
             position: "absolute",
             width: "50px",
             height: "50px",
             borderRadius: "50%",
-            background: "#fff",
+            background: "radial-gradient(circle, #ffffff 0%, #cbd5e1 70%, #94a3b8 100%)",
+            boxShadow: "0 4px 10px rgba(0,0,0,0.3), inset 1px 1px 2px rgba(255,255,255,0.8)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -207,10 +237,11 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
             border: "3px solid #fff",
           }}
         >
-          ❤️
+          <span style={{ fontSize: "16px" }}>❤️</span>
         </div>
       </div>
 
+      {/* NÚT BẤM REALTIME ĐỒNG BỘ CHI PHÍ */}
       <button
         onClick={handleSpin}
         disabled={isSpinning || prizes.length === 0}
@@ -221,13 +252,15 @@ export default function LuckyWheel({ totalRewards, onWin, loading }) {
           border: "none",
           borderRadius: "25px",
           fontWeight: "bold",
-          cursor: "pointer",
-          boxShadow: isSpinning ? "none" : "0 6px 16px rgba(244,63,94,0.4)",
-          transition: "0.1s",
+          fontSize: "15px",
+          cursor: isSpinning ? "not-allowed" : "pointer",
+          boxShadow: isSpinning ? "none" : "0 6px 16px rgba(244,63,94,0.4), inset 0 -4px 0 rgba(0,0,0,0.15)",
+          transition: "all 0.1s ease",
+          transform: isSpinning ? "translateY(3px)" : "none"
         }}
       >
         {isSpinning
-          ? "🎲 Đang quay..."
+          ? "🎲 Đang thử vận may..."
           : `🎡 Quay Nhân Phẩm (${spinCost} phiếu)`}
       </button>
     </div>

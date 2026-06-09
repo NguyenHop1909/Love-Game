@@ -59,11 +59,53 @@ function App() {
   const [isWheelSettingsOpen, setIsWheelSettingsOpen] = useState(false);
   // Ref cho âm thanh quay
   const audioRef = useRef(new Audio("/xosoMB.wav"));
+  // Biến này sẽ được cập nhật từ database, nhưng khởi tạo mặc định là 2 để tránh lỗi khi chưa load kịp
+  const [spinCost, setSpinCost] = useState(2); // Khởi tạo mặc định là 2
 
   // Đọc cấu hình bảo mật từ file .env
   const idTeleCuaAnh = import.meta.env.VITE_TELE_CHAT_ID_ANH;
   const idTeleCuaEm = import.meta.env.VITE_TELE_CHAT_ID_EM;
   const teleBotToken = import.meta.env.VITE_TELE_BOT_TOKEN;
+
+  // Đặt hàm fetchSettings vào trong useEffect
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('wheel_settings')
+          .select('spin_cost')
+          .eq('id', 1)
+          .single();
+
+        if (data) {
+          console.log("Dữ liệu từ DB trả về:", data.spin_cost);
+          setSpinCost(data.spin_cost); // Cập nhật vào state
+        } else {
+          console.log("Lỗi tải settings:", error);
+        }
+      } catch (err) {
+        console.error("Lỗi kết nối DB:", err);
+      }
+    };
+
+    fetchSettings();
+  }, []);
+
+  // --- LOAD CÀI ĐẶT VÒNG QUAY TỪ DATABASE KHI COMPONENT MOUNT ---
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data, error } = await supabase
+        .from('wheel_settings')
+        .select('spin_cost')
+        .eq('id', 1)
+        .single();
+
+      if (data) {
+        setSpinCost(data.spin_cost); // Cập nhật số phiếu từ Database vào đây
+      }
+    };
+    fetchSettings();
+  }, []);
 
   // --- 1. KIỂM TRA PHIÊN BẢN ỨNG DỤNG KHI NGƯỜI DÙNG ĐĂNG NHẬP VÀ TẢI XONG DỮ LIỆU ---
   useEffect(() => {
@@ -117,102 +159,112 @@ function App() {
 
       // 2. Gán màu tự động
       const colors = [
-        "#ff9aa2",
-        "#ffb7b2",
-        "#ffdac1",
-        "#e2f0cb",
-        "#b5ead7",
-        "#c7ceea",
-        "#f8d7da",
-        "#d1e7dd",
+        "#ff9aa2", "#ffb7b2", "#ffdac1", "#e2f0cb",
+        "#b5ead7", "#c7ceea", "#f8d7da", "#d1e7dd",
       ];
       const formattedPrizes = validPrizes.map((p, index) => ({
         text: p.text,
         color: colors[index % colors.length],
       }));
 
+      // Chuyển đổi giá trị input thành số an toàn
+      const newCost = parseInt(newSpinCost) || 0;
+
       // 3. Gửi thẳng lên Supabase
       const { error } = await supabase
         .from("wheel_settings")
         .update({
           prizes: formattedPrizes,
-          spin_cost: parseInt(newSpinCost) || 0,
+          spin_cost: newCost,
         })
         .eq("id", 1);
 
       if (error) throw error;
-      Swal.fire("Thành công! ✨", "Vòng quay đã được cập nhật!", "success");
+
+      // --- BƯỚC QUAN TRỌNG: CẬP NHẬT STATE NGAY LẬP TỨC ---
+      // Nếu ní đang dùng setSpinCost ở App.jsx, hãy gọi nó ở đây:
+      if (typeof setSpinCost === 'function') {
+        setSpinCost(newCost);
+      }
+
+      // Cập nhật lại danh sách quà hiển thị trên màn hình
+      setPrizes(formattedPrizes);
+
+      Swal.fire({
+        title: "Thành công! ✨",
+        text: "Vòng quay đã được cập nhật, bé yêu quay thử xem sao nhé!",
+        icon: "success",
+        confirmButtonColor: "#ff85c0"
+      });
+
+      // Đóng bảng cài đặt sau khi lưu xong
+      setIsWheelSettingsOpen(false);
+
     } catch (e) {
+      console.error(e);
       Swal.fire("Lỗi rồi ní ơi!", e.message, "error");
     }
   };
 
   // --- 🔥 HÀM XỬ LÝ KẾT QUẢ VÒNG QUAY MAY MẮN ---
   const handleLuckyWheelWin = async (prizeText) => {
-    const audio = audioRef.current;
-
-    // 1. Bật nhạc lên
-    audio.currentTime = 0;
-    audio.play().catch((err) => console.log("Trình duyệt chặn autoplay:", err));
+    // 1. Dừng nhạc ngay lập tức để không bị phát đè
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
 
     setLoadingExchange(true);
+
+    // 2. Hiện Popup ngay để người dùng thấy kết quả tức thì
+    Swal.fire({
+      title: "Vòng quay dừng lại rồi! 🎉",
+      html: `
+        <p style="font-size: 18px; font-weight: bold; color: #db2777;">✨ ${prizeText} ✨</p>
+        <p style="font-size: 14px;">Hệ thống đang xử lý phiếu và gửi báo cáo cho Công chúa...</p>
+      `,
+      icon: "success",
+      confirmButtonColor: "#ff85c0",
+      background: "#fff0f6",
+      confirmButtonText: "Đã rõ! 🧸",
+      allowOutsideClick: false // Không cho bấm ra ngoài để tránh lỗi luồng
+    });
+
     try {
-      const soPhieuTieuHao = 2; // Số phiếu dùng để quay theo yêu cầu của ní
+      // 3. Xử lý Logic (Chạy ngầm)
+      const soPhieuTieuHao = spinCost; // Lấy đúng giá trị từ biến State
       const ngayHomNay = new Date().toISOString().split("T")[0];
       const reasonText = `🎰 Vòng quay nhân phẩm: Trúng [${prizeText}]`;
 
-      // BƯỚC 1: TRỪ 2 ĐIỂM VÀO TỔNG PHIẾU THƯỞNG (Ghi nhận số âm vào bảng chính)
+      // Trừ điểm trong Database
       const { data: insertedData, error: dbError } = await supabase
         .from("rewards_penalties")
-        .insert([
-          {
-            date: ngayHomNay,
-            penalty_amount: 0,
-            reward_amount: -soPhieuTieuHao, // Trừ 2 phiếu thưởng
-            reward_reason: reasonText,
-          },
-        ])
-        .select(); // Thêm .select() để lấy ID dòng vừa tạo nhằm phục vụ ghi log
+        .insert([{
+          date: ngayHomNay,
+          penalty_amount: 0,
+          reward_amount: -soPhieuTieuHao,
+          reward_reason: reasonText
+        }])
+        .select();
 
       if (dbError) throw dbError;
 
-      // BƯỚC 3: GHI LOG TRỪ VÀO SỔ ĐẦU BÀI THƯỞNG PHẠT (Bảng audit_logs)
+      // Ghi log & Telegram (Không cần await để tăng tốc độ phản hồi)
       if (insertedData && insertedData.length > 0) {
-        const logMsg = `Anh yêu đã dùng ${soPhieuTieuHao} phiếu để quay vòng quay. Kết quả: Trúng [${prizeText}]`;
-        await logAction("INSERT", insertedData[0].id, logMsg);
+        logAction("INSERT", insertedData[0].id, `Anh yêu dùng ${soPhieuTieuHao} phiếu. Kết quả: ${prizeText}`);
       }
 
-      // BƯỚC 2: BÁO BÊN TELEGRAM CHO BÉ YÊU RẰNG MÌNH MỚI DÙNG 2 PHIẾU ĐỂ QUAY
-      const tinNhanTele =
-        `🎰 *TÍN HIỆU THỬ THÁCH NHÂN PHẨM!* 🎰\n\n` +
-        `Anh người yêu vừa tiêu hao *${soPhieuTieuHao} Phiếu Thưởng* để thử vận may với Vòng Quay.\n\n` +
-        `🎯 *Kết quả quay trúng:* \n👉 *${prizeText}* 👈\n\n` +
-        `Công chúa chuẩn bị tinh thần xử lý phần thưởng/hình phạt này cho người ta nhé! 😂💕`;
+      const tinNhanTele = `🎰 *TÍN HIỆU THỬ THÁCH NHÂN PHẨM!* 🎰\n\nAnh yêu vừa tiêu hao *${soPhieuTieuHao} Phiếu Thưởng*.\n\n🎯 *Kết quả:* ${prizeText}`;
+      callTelegramAPI(idTeleCuaEm, tinNhanTele);
 
-      // Gửi tin nhắn đến Telegram của Em yêu
-      await callTelegramAPI(idTeleCuaEm, tinNhanTele);
-
-      // BƯỚC 4: HIỆN POPUP THÔNG BÁO CHO NGƯỜI QUAY
-      await Swal.fire({
-        title: "Vòng quay dừng lại rồi! 🎉",
-        html:
-          `<p style="font-size: 16px; font-weight: bold; color: #db2777;">✨ Kết quả: ${prizeText} ✨</p>` +
-          `<p style="font-size: 13px;">Hệ thống đã trừ ${soPhieuTieuHao} phiếu, ghi log Sổ đầu bài và báo cáo trực tiếp cho Công chúa qua Telegram rồi nhen ní!</p>`,
-        icon: "success",
-        confirmButtonColor: "#ff85c0",
-        background: "#fff0f6",
-        confirmButtonText: "Chấp nhận số phận! 🧸",
-      });
-
-      // Reset và tải lại dữ liệu điểm mới nhất lên giao diện
+      // Cập nhật lại điểm số trên giao diện
       await fetchData();
+
     } catch (error) {
       console.error("Lỗi vòng quay:", error);
-      Swal.fire("Lỗi rồi ní ơi!", error.message, "error");
+      // Ní có thể thêm Swal.fire lỗi ở đây nếu cần
     } finally {
       setLoadingExchange(false);
-      // Tắt nhạc khi xong (nếu cần)
-      audio.pause();
     }
   };
 
@@ -255,9 +307,9 @@ function App() {
     .map((item) => ({
       date: item.created_at
         ? new Date(item.created_at).toLocaleDateString("vi-VN", {
-            day: "2-digit",
-            month: "2-digit",
-          })
+          day: "2-digit",
+          month: "2-digit",
+        })
         : "N/A",
       reward: Number(item.reward_amount) || 0,
       penalty: Math.abs(Number(item.penalty_amount)) || 0,
@@ -998,7 +1050,7 @@ function App() {
       preConfirm: () => {
         const type =
           document.getElementById("btn-reward").style.backgroundColor ===
-          "rgb(22, 163, 74)"
+            "rgb(22, 163, 74)"
             ? "reward"
             : "penalty";
         return {
@@ -1086,12 +1138,11 @@ function App() {
       `🛒 Đã đổi: *${displayDoiQua}*\n` +
       `─────────────────────────\n` +
       `🎯 *Quỹ tích lũy:* ${totalRewards} phiếu\n\n` +
-      `${
-        totalRewards >= 0
-          ? "🧸 Anh yêu vẫn còn dư dả nè! 🥰"
-          : "💔 Anh yêu nợ " +
-            Math.abs(totalRewards) +
-            " phiếu phạt! Đến giờ ăn đòn!!! 👿"
+      `${totalRewards >= 0
+        ? "🧸 Anh yêu vẫn còn dư dả nè! 🥰"
+        : "💔 Anh yêu nợ " +
+        Math.abs(totalRewards) +
+        " phiếu phạt! Đến giờ ăn đòn!!! 👿"
       }`;
 
     // 2. Thông báo gửi cho Công chúa (ngọt ngào, báo cáo để Công chúa nắm tình hình)
@@ -1104,12 +1155,11 @@ function App() {
       `🛒 Đã đổi: *${displayDoiQua}*\n` +
       `─────────────────────────\n` +
       `🎯 *Quỹ hiện tại:* ${totalRewards} phiếu\n\n` +
-      `${
-        totalRewards >= 0
-          ? "🥰 Quỹ vẫn đang ổn áp, Công chúa yên tâm nha!"
-          : "👑 Anh yêu đang nợ Công chúa " +
-            Math.abs(totalRewards) +
-            " phiếu phạt. Nhớ nhắc ảnh ăn đòn nhé! 😉"
+      `${totalRewards >= 0
+        ? "🥰 Quỹ vẫn đang ổn áp, Công chúa yên tâm nha!"
+        : "👑 Anh yêu đang nợ Công chúa " +
+        Math.abs(totalRewards) +
+        " phiếu phạt. Nhớ nhắc ảnh ăn đòn nhé! 😉"
       }`;
 
     try {
@@ -1247,6 +1297,7 @@ function App() {
                 handleLuckyWheelWin={handleLuckyWheelWin}
                 prizes={prizes}
                 setPrizes={setPrizes}
+                spinCost={spinCost}
               />
             ) : (
               <Navigate to="/" />
@@ -1794,9 +1845,9 @@ const AdminView = ({
                           ⏰{" "}
                           {log.created_at
                             ? new Date(log.created_at).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
                             : ""}
                         </span>
                       </div>
@@ -2092,6 +2143,7 @@ const UserView = ({
   honthuong,
   loadingInitial,
   handleLuckyWheelWin,
+  spinCost,
 }) => {
   if (loadingInitial) return <CuteLoading />;
 
@@ -2206,6 +2258,7 @@ const UserView = ({
               totalRewards={totalRewards}
               onWin={handleLuckyWheelWin} // Truyền trúng cổng tiếp nhận kết quả
               loading={loadingExchange}
+              spinCost={spinCost}
             />
           </div>
         </div>
