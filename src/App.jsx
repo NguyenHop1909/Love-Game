@@ -63,6 +63,9 @@ function App() {
   const audioRef = useRef(new Audio("/xosoMB.wav"));
   // Biến này sẽ được cập nhật từ database, nhưng khởi tạo mặc định là 2 để tránh lỗi khi chưa load kịp
   const [spinCost, setSpinCost] = useState(2); // Khởi tạo mặc định là 2
+  // State để lưu thông tin quà trúng thưởng mới nhất, sẽ dùng để hiển thị trong popup sau khi quay
+  const [isOpenInventory, setIsOpenInventory] = useState(false);
+
 
   // Đọc cấu hình bảo mật từ file .env
   const idTeleCuaAnh = import.meta.env.VITE_TELE_CHAT_ID_ANH;
@@ -1341,6 +1344,8 @@ function App() {
                 prizes={prizes}
                 setPrizes={setPrizes}
                 spinCost={spinCost}
+                isOpenInventory={isOpenInventory}
+                setIsOpenInventory={setIsOpenInventory}
               />
             ) : (
               <Navigate to="/" />
@@ -2192,6 +2197,8 @@ const UserView = ({
   handleLuckyWheelWin,
   spinCost,
   freeSpins,
+  isOpenInventory,
+  setIsOpenInventory,
 }) => {
   if (loadingInitial) return <CuteLoading />;
 
@@ -2309,9 +2316,63 @@ const UserView = ({
               spinCost={spinCost}
               freeSpins={freeSpins}
             />
-
-            <GiftInventory />
           </div>
+        </div>
+
+        {/* HỆ THỐNG TÚI ĐỒ ẨN/HIỆN THẦN KỲ - ĐÃ DỜI XUỐNG GÓC DƯỚI PHẢI */}
+        <div style={{ position: "fixed", bottom: "30px", right: "20px", zIndex: 1000 }}>
+
+          {/* 1. NỘI DUNG TÚI QUÀ: Bùng lên PHÍA TRÊN cái icon khi mở */}
+          {isOpenInventory && (
+            <div
+              style={{
+                marginBottom: "15px", // Đẩy khung túi quà nằm PHÍA TRÊN cái icon
+                width: "360px",
+                animation: "fadeInDown 0.3s ease-out"
+              }}
+            >
+              <GiftInventory />
+            </div>
+          )}
+
+          {/* 2. ICON TÚI QUÀ (Nằm cố định ở góc dưới cùng bên phải) */}
+          <div
+            onClick={() => setIsOpenInventory(!isOpenInventory)}
+            style={{
+              width: "60px",
+              height: "60px",
+              background: "linear-gradient(135deg, #ff758c 0%, #ff7eb3 100%)",
+              borderRadius: "50%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "28px",
+              cursor: "pointer",
+              boxShadow: "0 8px 20px rgba(255, 117, 140, 0.4)",
+              border: "3px solid white",
+              transition: "all 0.3s ease",
+              userSelect: "none",
+              float: "right",
+              animation: !isOpenInventory ? "bounce 2s infinite" : "none"
+            }}
+            onMouseOver={(e) => e.currentTarget.style.transform = "scale(1.1) rotate(10deg)"}
+            onMouseOut={(e) => e.currentTarget.style.transform = "scale(1) rotate(0deg)"}
+          >
+            {isOpenInventory ? "❌" : "🎒"}
+          </div>
+
+          {/* Định nghĩa lại hiệu ứng chuyển động mượt mà dạt từ dưới lên */}
+          <style>{`
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(15px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  `}</style>
+
         </div>
 
         {/* ==================== CỘT TRÁI HOẶC KHU VỰC NHIỆM VỤ & THỐNG KÊ ==================== */}

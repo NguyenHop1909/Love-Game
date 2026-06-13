@@ -80,11 +80,22 @@ export default function AdminGiftManager() {
     const unusedCount = allGifts.filter((g) => g.status === "Chưa sử dụng").length;
     const usedCount = allGifts.filter((g) => g.status === "Đã sử dụng").length;
 
-    // 4. Lọc danh sách hiển thị dựa theo bộ lọc được chọn
+    // 4. Lọc danh sách hiển thị dựa theo bộ lọc được chọn (Đã tối ưu chống sai chính tả)
     const filteredGifts = allGifts.filter((gift) => {
-        if (filterStatus === "unused") return gift.status === "Chưa sử " || gift.status === "Chưa sử dụng";
-        if (filterStatus === "used") return gift.status === "Đã sử dụng";
-        return true; // "all"
+        // Ép về chuỗi chuẩn, nếu không có status thì mặc định là chưa xài
+        const statusText = gift.status ? gift.status.trim() : "Chưa sử dụng";
+
+        if (filterStatus === "unused") {
+            // Hễ chữ KHÔNG chứa chữ "Đã" thì mặc định coi như là Chưa sử dụng/Mới trúng nhen ní
+            return !statusText.includes("Đã");
+        }
+
+        if (filterStatus === "used") {
+            // Hễ chữ có chứa chữ "Đã" (Ví dụ: "Đã sử dụng", "Đã dùng") thì gom vào tab này
+            return statusText.includes("Đã");
+        }
+
+        return true; // "all" - Hiển thị tất tần tật
     });
 
     return (

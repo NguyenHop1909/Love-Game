@@ -6,15 +6,15 @@ export default function GiftInventory() {
     const [inventory, setInventory] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // 1. Hàm tải danh sách quà từ Database về
+    // 1. Hàm tải danh sách quà: CHỈ LẤY QUÀ CHƯA SỬ DỤNG
     const fetchInventory = async () => {
         setLoading(true);
         try {
-            // Vì hễ xài là xóa nên trong DB chỉ toàn quà chưa xài, cứ lấy hết ra nhen ní
             const { data, error } = await supabase
                 .from("user_inventory")
                 .select("*")
-                .order("created_at", { ascending: false }); // Quà mới trúng xếp lên đầu
+                .eq("status", "Chưa sử dụng") // 🔥 CHỈ LẤY QUÀ CHƯA XÀI (Viết thường chữ s chuẩn đét theo DB)
+                .order("created_at", { ascending: false });
 
             if (error) throw error;
             setInventory(data || []);
@@ -29,27 +29,30 @@ export default function GiftInventory() {
     useEffect(() => {
         fetchInventory();
 
-        const channel = supabase
-            .channel("inventory_realtime")
-            .on(
-                "postgres_changes",
-                { event: "*", schema: "public", table: "user_inventory" },
-                () => {
-                    fetchInventory(); // Có biến động (thêm/xóa) là tự động load lại túi quà liền
-                }
-            )
-            .subscribe();
+        const channel = supabase.channel("inventory_realtime");
+
+        // Khai báo sự kiện lắng nghe trước
+        channel.on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "user_inventory" },
+            () => {
+                fetchInventory(); // Có biến động là tự động load lại túi quà liền
+            }
+        );
+
+        // Kích hoạt lắng nghe sau cùng
+        channel.subscribe();
 
         return () => {
             supabase.removeChannel(channel);
         };
     }, []);
 
-    // 2. Logic khi bấm nút "Sử dụng" món quà -> XOÁ LUÔN KHỎI DATABASE
+    // 2. Logic khi bấm nút "Sử dụng" -> CHUYỂN THÀNH UPDATE TRẠNG THÁI
     const handleUseGift = async (giftId, giftName) => {
         const result = await Swal.fire({
             title: "Xác nhận sử dụng? 🎁",
-            text: `Ní muốn dùng món quà [${giftName}] này ngay bây giờ hả? (Món quà sẽ biến mất khỏi túi sau khi dùng nhen)`,
+            text: `Ní muốn dùng món quà [${giftName}] này ngay bây giờ hả?`,
             icon: "question",
             showCancelButton: true,
             confirmButtonColor: "#10b981",
@@ -60,22 +63,25 @@ export default function GiftInventory() {
 
         if (result.isConfirmed) {
             try {
-                // 👉 ĐÃ THAY ĐỔI: Chuyển từ .update() thành .delete() để xóa thẳng tay trên Supabase
+                // 🔥 ĐÃ ĐỔI: Chuyển từ .delete() thành .update() để lưu giữ data cho Admin
                 const { error } = await supabase
                     .from("user_inventory")
-                    .delete()
+                    .update({ status: "Đã sử dụng" })
                     .eq("id", giftId);
 
                 if (error) throw error;
 
-                Swal.fire({
+                // Thông báo thành công lung linh cho người yêu
+                await Swal.fire({
                     title: "Sử dụng thành công! 🎉",
                     text: `Đã kích hoạt: ${giftName}. Hãy liên hệ Công chúa để nhận quà đời thực nhen!`,
                     icon: "success",
                     confirmButtonColor: "#ff85c0"
                 });
 
-                // Hàm fetchInventory() sẽ tự chạy lại nhờ cổng Realtime ở trên nên ní không lo bị delay giao diện nhé
+                // 🔥 QUAN TRỌNG CHÍ MẠNG: Gọi lại hàm fetch dữ liệu NGAY TẠI ĐÂY sau khi đóng thông báo!
+                // Món quà sẽ bốc hơi khỏi túi đồ User ngay trước mắt!
+                await fetchInventory();
 
             } catch (error) {
                 Swal.fire("Lỗi rồi ní ơi!", error.message, "error");
