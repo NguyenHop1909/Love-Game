@@ -137,6 +137,8 @@ begin
   end if;
   if cost is null or cost < 0 then raise exception 'Chi phí không hợp lệ.'; end if;
   select coalesce(sum(coalesce(reward_amount,0) - coalesce(penalty_amount,0)),0) into amount from public.rewards_penalties;
+  -- Couple rule: exactly 9 raw points unlocks as 10 points for redemption.
+  if amount = 9 then amount := 10; end if;
   if cost > 0 and amount < cost then raise exception 'Không đủ phiếu để đổi quà.'; end if;
   if p_kind = 'FREE_SPIN' then
     update public.wheel_settings set free_spins = free_spins - 1 where id = 1;

@@ -12,8 +12,9 @@ test("Vietnam date stays correct before 07:00 and across year boundary", () => {
   assert.equal(localDate(new Date("2026-09-27T18:00:00Z")), "2026-09-28");
   assert.equal(localDate(new Date("2026-12-31T18:00:00Z")), "2027-01-01");
 });
-test("wallet uses actual ledger without an invented bonus", () => {
-  assert.equal(balanceOf([{ reward_amount: 10, penalty_amount: 1 }]), 9);
+test("wallet applies the couple rule: exactly 9 raw points unlocks as 10", () => {
+  assert.equal(balanceOf([{ reward_amount: 10, penalty_amount: 1 }]), 10);
+  assert.equal(balanceOf([{ reward_amount: 9 }]), 10);
   assert.equal(balanceOf([{ reward_amount: 10 }, { reward_amount: -10 }]), 0);
 });
 test("every repeated spin lands the selected segment beneath the pointer", () => {

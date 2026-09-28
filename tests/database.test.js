@@ -82,14 +82,12 @@ test("non-members and anonymous visitors cannot read or write private data", asy
     /permission denied/,
   );
 });
-test("9 real points cannot redeem a 10-point gift", async () => {
+test("the couple 9-to-10 rule allows a 10-point gift", async () => {
   await resetWallet(9);
-  await assert.rejects(
-    asMember(user, "select public.love_redeem($1,'HUN_MOI')", [request()]),
-    /Không đủ phiếu/,
-  );
-  const result = await asMember(user, "select * from public.user_inventory");
-  assert.equal(result.rows.length, 0);
+  const redeemed = await asMember(user, "select public.love_redeem($1,'HUN_MOI') as result", [request()]);
+  assert.equal(redeemed.rows[0].result.cost, 10);
+  const inventory = await asMember(user, "select * from public.user_inventory");
+  assert.equal(inventory.rows.length, 1);
 });
 test("redeem is idempotent and creates one gift with one debit", async () => {
   await resetWallet(20);

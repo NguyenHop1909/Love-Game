@@ -24,7 +24,7 @@ E2E mặc định dùng Chrome đã cài. Nếu dùng Chromium của Playwright:
 
 ## Nâng cấp dự án đang chạy
 
-Bản này **cần migration backend trước khi phát hành frontend**. Không chỉ merge rồi để Vercel tự deploy lên production: đăng nhập cũ bằng tên/mật khẩu hardcode đã được thay bằng email và Supabase Auth. Không còn cộng ảo 9 phiếu thành 10. Dữ liệu lịch sử không bị xóa.
+Bản này **cần migration backend trước khi phát hành frontend**. Không chỉ merge rồi để Vercel tự deploy lên production: đăng nhập cũ bằng tên/mật khẩu hardcode đã được thay bằng email và Supabase Auth. Luật riêng của hai người được giữ nguyên: số dư thô đúng 9 phiếu được tính là 10 phiếu khi đổi quà. Dữ liệu lịch sử không bị xóa.
 
 1. Sao lưu database và thử trên Supabase staging. Migration giả định các cột hiện có giống code cũ: `quizzes`, `rewards_penalties`, `user_inventory`, `wheel_settings`, `audit_logs`. Nếu có custom enum/check constraint cho trạng thái quà, cần mở rộng chúng cho `Chờ hẹn`, `Đã hẹn`, `Đã thu hồi` trước khi dùng luồng mới. Migration chạy trong transaction; nếu lỗi thì rollback toàn bộ.
 2. Tạo hai tài khoản email/password trong Supabase Authentication. Tắt public sign-ups. Tài khoản không có trong `love_members` không được đọc dữ liệu, kể cả đã đăng nhập.

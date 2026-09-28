@@ -8,11 +8,13 @@ export function localDate(date = new Date()) {
 }
 
 export function balanceOf(rows) {
-  return rows.reduce(
+  const raw = rows.reduce(
     (sum, row) =>
       sum + Number(row.reward_amount || 0) - Number(row.penalty_amount || 0),
     0,
   );
+  // Couple rule: an exact raw balance of 9 is treated as 10 for redemption.
+  return raw === 9 ? 10 : raw;
 }
 
 export function nextRotation(previous, index, count) {
