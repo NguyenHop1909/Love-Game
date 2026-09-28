@@ -101,8 +101,14 @@ function Login({ initialError }) {
     setError("");
     const form = new FormData(event.currentTarget);
     try {
+      const identifier = form.get("email").trim().toLowerCase();
+      const aliases = {
+        anhyeu: "anhyeu@love-game.local",
+        emyeu: "emyeu@love-game.local",
+      };
+      const email = aliases[identifier] || identifier;
       const { error } = await supabase.auth.signInWithPassword({
-        email: form.get("email").trim(),
+        email,
         password: form.get("password"),
       });
       if (error) throw error;
@@ -121,17 +127,17 @@ function Login({ initialError }) {
         <p className="muted">Một chút quan tâm, một chút bất ngờ, mỗi ngày.</p>
         <form onSubmit={login} className="stack">
           <label>
-            Email
-            <input
-              name="email"
-              type="email"
-              autoComplete="username"
-              required
-              placeholder="Email của bạn"
+          Tài khoản
+          <input
+            name="email"
+            type="text"
+            autoComplete="username"
+            required
+            placeholder="anhyeu hoặc emyeu"
             />
           </label>
           <label>
-            Mật khẩu
+          Mật khẩu
             <input
               name="password"
               type="password"
