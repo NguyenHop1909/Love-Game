@@ -12,6 +12,8 @@ npm ci
 
 Tạo `.env.local` từ `.env.example`, điền `VITE_SUPABASE_URL` và publishable/anon key. Không đặt service-role key hay Telegram bot token vào biến `VITE_*`.
 
+Giao diện hỗ trợ username alias cho hai tài khoản riêng của cặp đôi. Do Supabase bắt mật khẩu tối thiểu 6 ký tự, frontend ánh xạ mật khẩu quy ước sang mật khẩu backend đủ chuẩn; không ghi thông tin đăng nhập vào repository.
+
 ```sh
 npm run dev
 npm run lint
