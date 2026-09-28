@@ -1,2881 +1,954 @@
-import React, { useState, useEffect, useRef } from "react";
-import { supabase } from "./supabaseClient.js";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import Swal from "sweetalert2";
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
-import ChartSummary from "./ChartSummary";
-import ButtonCute from "./ButtonCute";
-import CuteLoading from "./CuteLoading";
-import LuckyWheel from "./LuckyWheel"; // Import component Vòng Quay Nhân Phẩm
-import { APP_CONFIG } from "./AppVersion"; // Import file cấu hình
-import GiftInventory from "./GiftInventory"; // Import component Túi Đồ Tích Lũy
-import AdminGiftManager from "./AdminGiftManager"; // Import component quản lý quà cho Admin
+import { isConfigured, supabase, rpc, notifyPartner } from "./supabaseClient";
+import {
+  balanceOf,
+  displayDate,
+  localDate,
+  memberRole,
+  validQuizLink,
+} from "./lib/domain";
+import { useLoveData } from "./lib/useLoveData";
+import LuckyWheel from "./LuckyWheel";
+import GiftInventory from "./GiftInventory";
+import SharedSpace from "./SharedSpace";
+import WheelSettingsPage from "./WheelSettingsPage";
+const ChartSummary = lazy(() => import("./ChartSummary"));
 
-function App() {
-  const navigate = useNavigate();
+async function confirmAction(text) {
+  const result = await Swal.fire({
+    title: "Xác nhận nhé?",
+    text,
+    icon: "question",
+    showCancelButton: true,
+    confirmButtonText: "Đồng ý",
+    cancelButtonText: "Để sau",
+    confirmButtonColor: "#be4968",
+  });
+  return result.isConfirmed;
+}
 
-  // --- HỆ THỐNG ĐĂNG NHẬP NỘI BỘ ---
-  const [isLoggedIn, setIsLoggedIn] = useState(
-    () => localStorage.getItem("is_logged_in") === "true",
-  );
-  const [role, setRole] = useState(
-    () => localStorage.getItem("user_role") || "",
-  );
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-
-  // --- BIẾN CHO PHẦN KAHOOT ---
-  const [kahootLink, setKahootLink] = useState("");
-  const [loadingAdmin, setLoadingAdmin] = useState(false);
-  const [messageAdmin, setMessageAdmin] = useState("");
-  const [quizzes, setQuizzes] = useState([]);
-  const [scores, setScores] = useState({});
-  const [selectedFiles, setSelectedFiles] = useState({});
-  const [loadingUser, setLoadingUser] = useState(false);
-
-  // --- BIẾN CHO PHẦN THƯỞNG PHẠT + LÍ DO ---
-  const [rewardsPenalties, setRewardsPenalties] = useState([]);
-  const [inputDate, setInputDate] = useState(
-    new Date().toISOString().split("T")[0],
-  );
-  const [penaltyAmount, setPenaltyAmount] = useState(0);
-  const [rewardAmount, setRewardAmount] = useState(0);
-  const [reason, setReason] = useState(""); // Ô nhập chung ở giao diện
-  const [loadingTicket, setLoadingTicket] = useState(false);
-
-  // --- BIẾN ĐỂ TÍNH TOÁN QUY ĐỔI CHO USER ---
-  const [loadingExchange, setLoadingExchange] = useState(false);
-  const [loadingInitial, setLoadingInitial] = useState(true);
-
-  // --- SHOW AUDIT LOGS (CHỈ ADMIN) ---
-  const [auditLogs, setAuditLogs] = useState([]);
-  const [showAuditLog, setShowAuditLog] = useState(false);
-
-  // --- HÀM CẬP NHẬT VÒNG QUAY (Admin dùng) ---
-  const [prizes, setPrizes] = useState([{ text: "" }]);
-  const [newSpinCost, setNewSpinCost] = useState(2);
-  // show modal update version
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
-
-  // Thêm cái State này ở đầu file AdminView
-  const [isWheelSettingsOpen, setIsWheelSettingsOpen] = useState(false);
-  // Ref cho âm thanh quay
-  const audioRef = useRef(new Audio("/xosoMB.wav"));
-  // Biến này sẽ được cập nhật từ database, nhưng khởi tạo mặc định là 2 để tránh lỗi khi chưa load kịp
-  const [spinCost, setSpinCost] = useState(2); // Khởi tạo mặc định là 2
-  // State để lưu thông tin quà trúng thưởng mới nhất, sẽ dùng để hiển thị trong popup sau khi quay
-  const [isOpenInventory, setIsOpenInventory] = useState(false);
-
-
-  // Đọc cấu hình bảo mật từ file .env
-  const idTeleCuaAnh = import.meta.env.VITE_TELE_CHAT_ID_ANH;
-  const idTeleCuaEm = import.meta.env.VITE_TELE_CHAT_ID_EM;
-  const teleBotToken = import.meta.env.VITE_TELE_BOT_TOKEN;
-
-
-  const handleConfirmUsed = async (itemId) => {
-    // Cập nhật trạng thái duyệt quà của người yêu thành Đã sử dụng xong
-    await supabase
-      .from('user_inventory')
-      .update({ status: 'Đã sử dụng' })
-      .eq('id', itemId);
-
-    Swal.fire('Xong liền!', 'Đã xác nhận thực hiện xong đặc quyền này cho người ta!', 'success');
-    // Load lại danh sách bảng admin...
-  };
-  // Đặt hàm fetchSettings vào trong useEffect
+export default function App() {
+  const [session, setSession] = useState(null);
+  const [checking, setChecking] = useState(isConfigured);
+  const [authError, setAuthError] = useState("");
   useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('wheel_settings')
-          .select('spin_cost')
-          .eq('id', 1)
-          .single();
-
-        if (data) {
-          console.log("Dữ liệu từ DB trả về:", data.spin_cost);
-          setSpinCost(data.spin_cost); // Cập nhật vào state
-        } else {
-          console.log("Lỗi tải settings:", error);
-        }
-      } catch (err) {
-        console.error("Lỗi kết nối DB:", err);
-      }
-    };
-
-    fetchSettings();
-  }, []);
-
-  // --- LOAD CÀI ĐẶT VÒNG QUAY TỪ DATABASE KHI COMPONENT MOUNT ---
-  useEffect(() => {
-    const fetchSettings = async () => {
-      const { data, error } = await supabase
-        .from('wheel_settings')
-        .select('spin_cost')
-        .eq('id', 1)
-        .single();
-
-      if (data) {
-        setSpinCost(data.spin_cost); // Cập nhật số phiếu từ Database vào đây
-      }
-    };
-    fetchSettings();
-  }, []);
-
-  // --- 1. KIỂM TRA PHIÊN BẢN ỨNG DỤNG KHI NGƯỜI DÙNG ĐĂNG NHẬP VÀ TẢI XONG DỮ LIỆU ---
-  useEffect(() => {
-    // Chỉ kiểm tra khi đã đăng nhập và ĐÃ LOAD XONG dữ liệu
-    if (isLoggedIn && !loadingUser) {
-      const lastVersion = localStorage.getItem("appVersion");
-      if (lastVersion !== APP_CONFIG.currentVersion) {
-        setShowUpdateModal(true);
-      }
-    }
-  }, [isLoggedIn, loadingUser]);
-
-  // --- 2. LOAD CÀI ĐẶT VÒNG QUAY TỪ DATABASE KHI COMPONENT MOUNT ---
-  useEffect(() => {
-    const loadCurrentSettings = async () => {
-      const { data } = await supabase
-        .from("wheel_settings")
-        .select("*")
-        .eq("id", 1)
-        .single();
-      if (data) {
-        setNewSpinCost(data.spin_cost);
-        // SỬA CHỖ NÀY: Thay vì join chuỗi, mình set thẳng mảng vào prizes
-        setPrizes(
-          data.prizes && data.prizes.length > 0 ? data.prizes : [{ text: "" }],
-        );
-      }
-    };
-    loadCurrentSettings();
-  }, []);
-  // --- CÁC HÀM XỬ LÝ (Ní dán vào đây) ---
-  const addPrize = () => setPrizes([...prizes, { text: "" }]);
-
-  const removePrize = (index) => {
-    if (prizes.length > 1) setPrizes(prizes.filter((_, i) => i !== index));
-  };
-
-  const updatePrize = (index, value) => {
-    const newArr = [...prizes];
-    newArr[index].text = value;
-    setPrizes(newArr);
-  };
-
-  // --- 3. HÀM CẬP NHẬT (Dùng cho nút bấm) ---
-  const updateWheelSettings = async () => {
-    try {
-      // 1. Lọc bỏ các dòng trắng
-      const validPrizes = prizes.filter((p) => p.text.trim() !== "");
-      if (validPrizes.length === 0)
-        throw new Error("Nhập ít nhất 1 phần thưởng nhen ní!");
-
-      // 2. Gán màu tự động
-      const colors = [
-        "#ff9aa2", "#ffb7b2", "#ffdac1", "#e2f0cb",
-        "#b5ead7", "#c7ceea", "#f8d7da", "#d1e7dd",
-      ];
-      const formattedPrizes = validPrizes.map((p, index) => ({
-        text: p.text,
-        color: colors[index % colors.length],
-      }));
-
-      // Chuyển đổi giá trị input thành số an toàn
-      const newCost = parseInt(newSpinCost) || 0;
-
-      // 3. Gửi thẳng lên Supabase
-      const { error } = await supabase
-        .from("wheel_settings")
-        .update({
-          prizes: formattedPrizes,
-          spin_cost: newCost,
-        })
-        .eq("id", 1);
-
-      if (error) throw error;
-
-      // --- BƯỚC QUAN TRỌNG: CẬP NHẬT STATE NGAY LẬP TỨC ---
-      // Nếu ní đang dùng setSpinCost ở App.jsx, hãy gọi nó ở đây:
-      if (typeof setSpinCost === 'function') {
-        setSpinCost(newCost);
-      }
-
-      // Cập nhật lại danh sách quà hiển thị trên màn hình
-      setPrizes(formattedPrizes);
-
-      Swal.fire({
-        title: "Thành công! ✨",
-        text: "Vòng quay đã được cập nhật, bé yêu quay thử xem sao nhé!",
-        icon: "success",
-        confirmButtonColor: "#ff85c0"
-      });
-
-      // Đóng bảng cài đặt sau khi lưu xong
-      setIsWheelSettingsOpen(false);
-
-    } catch (e) {
-      console.error(e);
-      Swal.fire("Lỗi rồi ní ơi!", e.message, "error");
-    }
-  };
-
-  // --- 🔥 HÀM XỬ LÝ KẾT QUẢ VÒNG QUAY MAY MẮN ---
-  const handleLuckyWheelWin = async (prizeText, isUsingFreeSpin) => {
-    // 1. Dừng nhạc ngay lập tức để không bị phát đè
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-
-    setLoadingExchange(true);
-
-    // 2. Hiện Popup ăn mừng ngay để người dùng thấy kết quả tức thì
-    Swal.fire({
-      title: "Vòng quay dừng lại rồi! 🎉",
-      html: `
-      <p style="font-size: 18px; font-weight: bold; color: #db2777;">✨ ${prizeText} ✨</p>
-      <p style="font-size: 14px;">Hệ thống đang xử lý phiếu và gửi báo cáo cho Công chúa...</p>
-    `,
-      icon: "success",
-      confirmButtonColor: "#ff85c0",
-      background: "#fff0f6",
-      confirmButtonText: "Đã rõ! 🧸",
-      allowOutsideClick: false // Không cho bấm ra ngoài để tránh lỗi luồng xoay liên tục
+    // Discard the legacy browser-only login; it never grants access anymore.
+    localStorage.removeItem("is_logged_in");
+    localStorage.removeItem("user_role");
+    if (!supabase) return;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, next) => {
+      setSession(next);
+      setChecking(false);
     });
-
-    try {
-      // 3. Bỏ quà vào Túi đồ (Inventory)
-      // Ní lưu ý: Đảm bảo tên cột trong DB của ní đúng là 'prize_text' nhen!
-      const { error: invError } = await supabase
-        .from('user_inventory')
-        .insert([{ prize_text: prizeText, status: 'Chưa sử dụng' }]);
-
-      if (invError) throw invError;
-
-      // 4. Xử lý chi phí lượt quay tách biệt
-      if (isUsingFreeSpin) {
-        // Lấy số lượt free hiện tại trong DB ra trước để trừ đi 1 (Tránh lỗi ép về 0 nếu có nhiều lượt)
-        const { data: wheelData } = await supabase
-          .from('wheel_settings')
-          .select('free_spins')
-          .eq('id', 1)
-          .single();
-
-        const currentFree = wheelData?.free_spins || 1;
-
-        // Tiến hành trừ đi 1 lượt quay miễn phí
-        await supabase
-          .from('wheel_settings')
-          .update({ free_spins: Math.max(0, currentFree - 1) })
-          .eq('id', 1);
-
-        console.log("🎯 Đã trừ thành công 1 lượt quay Free nội bộ!");
-      } else {
-        // Nếu xài điểm: Trừ điểm trong bảng rewards_penalties của ní như cũ
-        // Đảm bảo ở trên đầu file App.jsx ní đã định nghĩa biến `spinCost` rồi nhen
-        const soPhieuTieuHao = spinCost || 2;
-        const ngayHomNay = new Date().toISOString().split("T")[0];
-
-        const { error: penaltyError } = await supabase
-          .from("rewards_penalties")
-          .insert([{
-            date: ngayHomNay,
-            penalty_amount: 0,
-            reward_amount: -soPhieuTieuHao,
-            reward_reason: `🎰 Quay vòng quay: Trúng [${prizeText}]`
-          }]);
-
-        if (penaltyError) throw penaltyError;
-        console.log(`💵 Đã khấu trừ ${soPhieuTieuHao} phiếu thành công!`);
-      }
-
-      // 5. Bắn Telegram báo cáo Công chúa là anh ấy đã quay trúng quà
-      const msg = `🎰 *QUAY TRÚNG QUÀ MỚI!* 🎰\n\nAnh yêu vừa quay trúng: *${prizeText}*\n🎁 Phần thưởng này đã được chuyển vào *Túi Đồ Tích Lũy* của anh ấy rồi nhé công chúa!`;
-      callTelegramAPI(idTeleCuaEm, msg);
-
-      // 6. Tải lại toàn bộ dữ liệu giao diện (Điểm số mới, Số lượt free còn lại...)
-      if (typeof fetchData === "function") {
-        await fetchData();
-      }
-
-    } catch (error) {
-      console.error("🚨 Lỗi trong quá trình xử lý phần thưởng:", error);
-      Swal.fire({
-        title: "Hệ thống khựng lại rồi ní! 😿",
-        text: `Lỗi: ${error.message || "Không thể kết nối Supabase, ní kiểm tra lại RLS nha!"}`,
-        icon: "error",
-        confirmButtonColor: "#f43f5e"
+    supabase.auth
+      .getSession()
+      .then(({ data, error }) => {
+        if (error) setAuthError(error.message);
+        setSession(data.session);
+        setChecking(false);
+      })
+      .catch((error) => {
+        setAuthError(error.message);
+        setChecking(false);
       });
-    } finally {
-      setLoadingExchange(false);
-    }
-  };
-
-  const getLogMessage = (oldData, newData) => {
-    // oldData và newData là object chứa { amount: 111, type: 'thưởng' }
-    const oldText = `${oldData.amount} điểm ${oldData.type}`;
-    const newText = `${newData.amount} điểm ${newData.type}`;
-
-    return `Sửa từ ${oldText} --> ${newText}`;
-  };
-
-  const logAction = async (actionType, targetId, details) => {
-    try {
-      await supabase.from("audit_logs").insert([
-        {
-          admin_name: "Em bé yêu",
-          action_type: actionType,
-          target_id: targetId,
-          action_details: details,
-        },
-      ]);
-    } catch (error) {
-      console.error("Lỗi log hành động:", error);
-    }
-  };
-
-  const fetchLogs = async () => {
-    const { data, error } = await supabase
-      .from("audit_logs")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (data) {
-      setAuditLogs(data); // Chỉ cập nhật dữ liệu, KHÔNG TOGGLE
-    }
-  };
-
-  const chartData = [...rewardsPenalties]
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)) // Dùng created_at cho chắc chắn
-    .map((item) => ({
-      date: item.created_at
-        ? new Date(item.created_at).toLocaleDateString("vi-VN", {
-          day: "2-digit",
-          month: "2-digit",
-        })
-        : "N/A",
-      reward: Number(item.reward_amount) || 0,
-      penalty: Math.abs(Number(item.penalty_amount)) || 0,
-    }));
-
-  const handleDeleteQuiz = async (id) => {
-    const result = await Swal.fire({
-      title: "Ơ kìa, Công chúa muốn xóa bài này hả? 👑",
-      text: "Công chúa chắc chưa đó? Xóa cái này là anh người yêu không có bài để làm đâu, Công chúa suy nghĩ kỹ chưa nè... 🧸✨",
-      icon: "question",
-      showCancelButton: true,
-      confirmButtonColor: "#ff85c0", // Hồng phấn
-      cancelButtonColor: "#ffcce6", // Hồng nhạt
-      confirmButtonText: "Đúng rồi, xóa đi! ✨",
-      cancelButtonText: "Thôi, để đó cho anh yêu làm! 💖",
-      background: "#fff0f6",
-      customClass: {
-        popup: "rounded-3xl",
-      },
-    });
-
-    if (result.isConfirmed) {
-      await supabase.from("quizzes").delete().eq("id", id);
-      fetchData();
-      Swal.fire({
-        title: "Đã xóa theo ý Công chúa! 🪄",
-        text: "Công chúa đúng là nghiêm khắc quá đi thôi, cơ mà anh yêu chắc sợ xanh mặt rồi! 🥰",
-        icon: "success",
-        confirmButtonColor: "#ff85c0",
-        background: "#fff0f6",
-        confirmButtonText: "Tuân lệnh Công chúa! ✨",
-      });
-    }
-  };
-
-  const handleEditQuiz = async (quiz) => {
-    const { value: formValues } = await Swal.fire({
-      title: "Công chúa muốn thay đổi thử thách?",
-      html:
-        `<label style="color: #db2777; font-weight: bold;">Link Kahoot mới nè:</label>` +
-        `<input id="swal-link-input" class="swal2-input" value="${quiz.link_kahoot}" placeholder="Dán link mới vào đây nha...">`,
-      focusConfirm: false,
-      showCancelButton: true,
-      confirmButtonText: "Đổi luôn đi! ✨",
-      cancelButtonText: "Thôi, để vậy đi 💖",
-      background: "#fff0f6", // Màu hồng pastel xinh xắn
-      confirmButtonColor: "#db2777",
-      preConfirm: () => {
-        const link = document.getElementById("swal-link-input")?.value;
-        if (!link) {
-          Swal.showValidationMessage("Công chúa chưa nhập link kìa! 🥺");
-          return false;
-        }
-        return { link };
-      },
-    });
-
-    if (formValues) {
-      try {
-        await supabase
-          .from("quizzes")
-          .update({ link_kahoot: formValues.link })
-          .eq("id", quiz.id);
-
-        fetchData();
-        Swal.fire({
-          title: "Đã cập nhật xong! 🪄",
-          text: "Công chúa thay đổi thử thách rồi, anh yêu chuẩn bị tinh thần đi là vừa! 🥰",
-          icon: "success",
-          confirmButtonColor: "#db2777",
-          background: "#fff0f6",
-        });
-      } catch (error) {
-        Swal.fire("Hỏng rồi Công chúa ơi!", error.message, "error");
-      }
-    }
-  };
-  // --- HÀM GỬI TIN NHẮN TELEGRAM ---
-  const callTelegramAPI = async (chatId, textMessage) => {
-    if (!teleBotToken || !chatId) {
-      console.warn("Thiếu cấu hình Token hoặc Chat ID trong file .env ní ơi!");
-      return;
-    }
-    try {
-      const url = `https://api.telegram.org/bot${teleBotToken}/sendMessage`;
-      await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: textMessage,
-          parse_mode: "Markdown",
-        }),
-      });
-    } catch (err) {
-      console.error("Lỗi API Telegram:", err);
-    }
-  };
-
-  // --- XỬ LÝ ĐĂNG NHẬP + ĐIỀU HƯỚNG TỰ ĐỘNG ---
-  const handleLogin = (e) => {
-    e.preventDefault();
-    setLoginError("");
-
-    // Dùng .toLowerCase() để không phân biệt hoa thường
-    const user = username.trim().toLowerCase();
-    const pass = password;
-
-    if (user === "anhyeu" && pass === "0212") {
-      setIsLoggedIn(true);
-      setRole("admin");
-      localStorage.setItem("is_logged_in", "true");
-      localStorage.setItem("user_role", "admin");
-      navigate("/admin");
-    } else if (user === "emyeu" && pass === "0212") {
-      setIsLoggedIn(true);
-      setRole("user");
-      localStorage.setItem("is_logged_in", "true");
-      localStorage.setItem("user_role", "user");
-      navigate("/user");
-    } else {
-      // Tách biệt thông báo cho từng người
-      if (user === "anhyeu") {
-        setLoginError(
-          "❌ Anh yêu à, sai mật khẩu rồi kìa! Nhập lại cho Công chúa nha! 👑",
-        );
-      } else if (user === "anhyeu") {
-        setLoginError("❌ Công chúa ơi, sai mật khẩu rồi! Kiểm tra lại nè! 🧸");
-      } else {
-        setLoginError(
-          "❌ Tên đăng nhập hoặc mật khẩu không đúng rồi ní ơi! 💕",
-        );
-      }
-    }
-  };
-
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setRole("");
-    localStorage.clear();
-    navigate("/");
-  };
-
-  // Tải dữ liệu tổng hợp từ Database Supabase về
-  const fetchData = async () => {
-    try {
-      const { data: qData } = await supabase
-        .from("quizzes")
-        .select("*")
-        .order("id", { ascending: false });
-      setQuizzes(qData || []);
-
-      const { data: rpData } = await supabase
-        .from("rewards_penalties")
-        .select("*")
-        .order("date", { ascending: false })
-        .order("created_at", { ascending: false });
-
-      setRewardsPenalties(rpData || []);
-
-      if (rpData) {
-        // 1. Tính tổng thực tế (Thưởng - Phạt)
-        const currentTotal = rpData.reduce(
-          (acc, item) =>
-            acc +
-            (Number(item.reward_amount) || 0) -
-            (Number(item.penalty_amount) || 0),
-          0,
-        );
-
-        // 2. LOGIC BONUS: Nếu đúng bằng 9 thì cộng thêm 1 thành 10
-        const bonus = currentTotal === 9 ? 1 : 0;
-      }
-    } catch (error) {
-      console.error("Lỗi tải dữ liệu:", error.message);
-    }
-  };
-
-  useEffect(() => {
-    if (!isLoggedIn) return; // Chỉ chạy khi đã login
-
-    // Hàm khởi tạo dữ liệu ban đầu
-    const initApp = async () => {
-      setLoadingInitial(true);
-      await Promise.all([fetchData(), fetchLogs()]);
-      setLoadingInitial(false);
-    };
-
-    initApp();
-
-    const channel = supabase
-      .channel("schema-db-changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "rewards_penalties" },
-        (payload) => {
-          console.log("Realtime nhận được:", payload);
-
-          if (payload.eventType === "INSERT") {
-            // Kiểm tra xem payload.new có đủ dữ liệu không
-            if (payload.new) {
-              setRewardsPenalties((prev) => {
-                // Kiểm tra trùng lặp ID để tránh hiện 2 dòng
-                if (prev.find((item) => item.id === payload.new.id))
-                  return prev;
-                return [...prev, payload.new];
-              });
-            }
-          } else if (payload.eventType === "UPDATE") {
-            setRewardsPenalties((prev) =>
-              prev.map((item) =>
-                item.id === payload.new.id ? payload.new : item,
-              ),
-            );
-          } else if (payload.eventType === "DELETE") {
-            setRewardsPenalties((prev) =>
-              prev.filter((item) => item.id !== payload.old.id),
-            );
-          }
-        },
-      )
-      .subscribe();
-
-    // 2. THÊM KÊNH CHO BẢNG AUDIT_LOGS
-    const auditChannel = supabase
-      .channel("audit-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "audit_logs" },
-        (payload) => {
-          // payload.new chính là dòng log vừa được thêm vào DB
-          setAuditLogs((prev) => [payload.new, ...prev]);
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(auditChannel);
-    };
-  }, [isLoggedIn]);
-
-  // Tính tổng điểm từ database trước
-  const rawTotal = rewardsPenalties.reduce((sum, item) => {
+    return () => subscription.unsubscribe();
+  }, []);
+  if (!isConfigured)
     return (
-      sum + Number(item.reward_amount || 0) - Number(item.penalty_amount || 0)
+      <main className="login-wrap">
+        <section className="card login-card">
+          <span className="hero-icon">💌</span>
+          <h1>Góc nhỏ của tụi mình</h1>
+          <p>
+            Web chưa được kết nối. Điền VITE_SUPABASE_URL và
+            VITE_SUPABASE_ANON_KEY vào .env.local rồi khởi động lại.
+          </p>
+          <p className="muted">
+            Xem README để hoàn tất thiết lập hai tài khoản riêng.
+          </p>
+        </section>
+      </main>
     );
-  }, 0);
-
-  // Sau đó tính totalRewards sau khi đã áp dụng "cơ chế nhân đạo"
-  const totalRewards = rawTotal === 9 ? 10 : rawTotal;
-
-  // Cuối cùng tính các biến ví dựa trên totalRewards đã được xử lý
-  const honthuong = totalRewards < 0 ? 0 : totalRewards;
-  const soHunSau = totalRewards < 0 ? 0 : Math.floor(totalRewards / 50);
-  const soHunMoi = totalRewards < 0 ? 0 : Math.floor((totalRewards % 50) / 10);
-
-  // --- 🔥 HÀM ĐỔI QUÀ ĐÃ FIX CUTE + ĐỒNG BỘ TELEGRAM 🔥 ---
-  const handleExchangeGift = async (type) => {
-    // Nếu điểm nhỏ hơn hoặc bằng 0, nổ ngay popup thông báo hồng phấn siêu cute
-    if (totalRewards <= 0) {
-      Swal.fire({
-        title: "Hết sạch phiếu rồi ní ơi! 💀",
-        text: `Ví hiện tại đang bị âm hoặc trống rỗng (${totalRewards} phiếu). Mau đi làm Kahoot nộp bài kiếm thêm phiếu thưởng nha! 🧸`,
-        icon: "error",
-        confirmButtonColor: "#ff85c0",
-        background: "#fff0f6",
-        confirmButtonText: "Đồng ý, đi cày điểm liền! ✨",
-        customClass: {
-          popup: "rounded-2xl",
-        },
-      });
-      return;
-    }
-
-    if (type === "HUN_MOI") {
-      if (totalRewards < 10) {
-        Swal.fire({
-          title: "Hụt quà rồi ní ơi! 😢",
-          text: `Cần ít nhất 10 phiếu thưởng, ní hiện tại mới tích được ${totalRewards} phiếu thui nà!`,
-          icon: "warning",
-          confirmButtonColor: "#ff4d94",
-        });
-        return;
-      }
-
-      const result = await Swal.fire({
-        title: "Đổi quà ngọt ngào nhé! 💋",
-        text: 'Ní chắc chắn muốn tiêu hao 10 phiếu thưởng để lấy 1 cái "Hun Môi" ngọt lịm này chứ? ✨',
-        icon: "question",
-        showCancelButton: true,
-        confirmButtonColor: "#ff85c0",
-        cancelButtonColor: "#ffcce6",
-        confirmButtonText: "Đổi liền tay, yêu ngay! 💖",
-        cancelButtonText: "Thôi, để dành tích tiếp 🧸",
-        background: "#fff0f6",
-        customClass: {
-          popup: "rounded-3xl",
-        },
-      });
-
-      if (!result.isConfirmed) return;
-
-      setLoadingExchange(true);
-      try {
-        // 1. Tạo lý do tự động thật ngọt ngào
-        const reasonText = `Đổi quà: ${currentGift.title} (Từ anh bé dễ thương)`;
-        const { error } = await supabase.from("rewards_penalties").insert([
-          {
-            date: new Date().toISOString().split("T")[0],
-            penalty_amount: 0,
-            reward_amount: -10,
-            reward_reason: reasonText,
-          },
-        ]);
-        if (error) throw error;
-
-        await callTelegramAPI(
-          idTeleCuaEm,
-          `🚨 *TÍN HIỆU ĐỔI QUÀ TỪ ANH NGƯỜI YÊU!* 🚨\n\nEm yêu ơi! Anh ấy vừa đổi thành công *10 Phiếu Thưởng* để nhận: \n💋 *1 CÁI HUN MÔI CHÍNH HIỆU* 💋\n\nCông Chúa của anh chuẩn bị "thanh toán" phần thưởng nóng hổi cho người ta đi kìa bé ơi! 🥰`,
-        );
-
-        await Swal.fire({
-          title: "Đổi quà thành công! 🎉",
-          text: "Bot đã bắn tin nhắn đòi Hun Môi đến Telegram em yêu rồi nhé. Chuẩn bị tinh thần nhận quà thôi ní ơi! 💋",
-          icon: "success",
-          confirmButtonColor: "#ff85c0",
-          background: "#fff0f6",
-          confirmButtonText: "Đã rõ, chờ tí nhé! ✨",
-        });
-        fetchData();
-      } catch (error) {
-        Swal.fire({
-          title: "Lỗi hệ thống rồi ní ơi! 🥺",
-          text: "Có chút trục trặc nhỏ: " + error.message,
-          icon: "error",
-          confirmButtonColor: "#ff85c0",
-          background: "#fff0f6",
-        });
-      } finally {
-        setLoadingExchange(false);
-      }
-    }
-
-    if (type === "HUN_SAU") {
-      if (totalRewards < 50) {
-        Swal.fire({
-          title: "Chưa đủ đô ní ơi! 🌋",
-          text: `Cần tích lũy 50 phiếu thưởng để đổi Hun Sâu bự chà bá, ní mới có ${totalRewards} phiếu hà!`,
-          icon: "warning",
-          confirmButtonColor: "#7c3aed",
-        });
-        return;
-      }
-
-      const result = await Swal.fire({
-        title: "Chơi lớn luôn nè! 🔥",
-        text: "Ní muốn tiêu hao hẳn 50 phiếu thưởng để đổi lấy 1 cái Hun Sâu siêu cấp cháy bỏng đúng không? Quà bự lắm á nha!",
-        icon: "heart",
-        showCancelButton: true,
-        confirmButtonColor: "#ff85c0",
-        cancelButtonColor: "#ffcce6",
-        confirmButtonText: "Chốt đơn, hun cái nào! 💋",
-        cancelButtonText: "Để suy nghĩ lại... 🧸",
-        background: "#fff0f6",
-        customClass: {
-          popup: "rounded-2xl",
-        },
-      });
-
-      if (!result.isConfirmed) return;
-
-      setLoadingExchange(true);
-      try {
-        const { error } = await supabase.from("rewards_penalties").insert([
-          {
-            date: new Date().toISOString().split("T")[0],
-            penalty_amount: 0,
-            reward_amount: -50,
-          },
-        ]);
-        if (error) throw error;
-
-        await callTelegramAPI(
-          idTeleCuaEm,
-          `🔥 *CẢNH BÁO NGUY HIỂM: ANH NGƯỜI YÊU CHƠI LỚN!* 🔥\n\nÚi chu cha! Anh người yêu vừa "đập hộp" tiêu hao hẳn 50 Phiếu Thưởng để đổi lấy đặc quyền tối cao: \n🌋 *1 CÁI HUN SÂU ĐẬM SÂU CHÁY BỎNG* 🌋\n\nTình huống vô cùng khẩn cấp, em yêu chuẩn bị tinh thần đón nhận "tấn công" ngọt ngào đi nhé! 🥰`,
-        );
-
-        await Swal.fire({
-          title: "Báo động đỏ khẩn cấp! 🌋",
-          text: "Đã phát tín hiệu Hotline 'khẩn cấp' qua máy Bé Yêu! Quà này siêu chất lượng nha!",
-          icon: "success",
-          confirmButtonColor: "#ff85c0",
-          background: "#fff0f6",
-          confirmButtonText: "Hóng quá đi nè! ✨",
-          customClass: {
-            popup: "rounded-2xl",
-          },
-        });
-        fetchData();
-      } catch (error) {
-        Swal.fire({
-          title: "Lỗi hệ thống rồi ní ơi! 🥺",
-          text: error.message,
-          icon: "error",
-          confirmButtonColor: "#ff85c0",
-          background: "#fff0f6",
-          customClass: {
-            popup: "rounded-2xl",
-          },
-        });
-      } finally {
-        setLoadingExchange(false);
-      }
-    }
-  };
-
-  // --- QUẢN LÝ THỬ THÁCH KAHOOT ---
-  const handleSendQuiz = async (e) => {
-    e.preventDefault();
-    if (!kahootLink.trim()) {
-      Swal.fire(
-        "Ơ kìa em yêu! 💕",
-        "Dán cái link Kahoot vào đã chứ nè!",
-        "info",
-      );
-      return;
-    }
-    setLoadingAdmin(true);
-    setMessageAdmin("");
-    try {
-      const { error } = await supabase
-        .from("quizzes")
-        .insert([{ link_kahoot: kahootLink, status: "PENDING" }]);
-      if (error) throw error;
-
-      await callTelegramAPI(
-        idTeleCuaAnh,
-        `🔥 *BÉ YÊU GỬI THỬ THÁCH MỚI!* 🔥\n\nNí ơi, người yêu vừa ra đề bài Kahoot mới tinh nè. Vào chiến ngay kẻo bị ăn phạt nha ní găm!\n🔗 *Link làm bài:* ${kahootLink}`,
-      );
-
-      setMessageAdmin(
-        "🎉 Đã gửi thử thách thành công và báo Hot-line cho anh người yêu rồi em yêu nhé!",
-      );
-      setKahootLink("");
-      fetchData();
-    } catch (error) {
-      setMessageAdmin("❌ Lỗi: " + error.message);
-    } finally {
-      setLoadingAdmin(false);
-    }
-  };
-
-  // --- USER NỘP BÀI MINH CHỨNG ---
-  const handleSubmitScore = async (quizId) => {
-    const diemSo = scores[quizId];
-    const fileAnh = selectedFiles[quizId];
-    if (diemSo === undefined || diemSo === "") {
-      Swal.fire(
-        "Thiếu điểm ní ơi! 😂",
-        "Nhập điểm số Kahoot vào đã nào!",
-        "warning",
-      );
-      return;
-    }
-    if (!fileAnh) {
-      Swal.fire(
-        "Ủa bằng chứng đâu? 📸",
-        "Thiếu ảnh chụp màn hình chứng minh kìa ní ơi!",
-        "warning",
-      );
-      return;
-    }
-    setLoadingUser(true);
-    try {
-      const fileExt = fileAnh.name.split(".").pop();
-      const fileName = `${quizId}-${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from("quiz-images")
-        .upload(fileName, fileAnh);
-      if (uploadError) throw uploadError;
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("quiz-images").getPublicUrl(fileName);
-      const { error: dbError } = await supabase
-        .from("quizzes")
-        .update({ score: parseInt(diemSo), status: "COMPLETED" })
-        .eq("id", quizId);
-      if (dbError) throw dbError;
-
-      await callTelegramAPI(
-        idTeleCuaEm,
-        `✅ *ANH NGƯỜY YÊU ĐÃ HOÀN THÀNH BÀI!* ✅\n\n🎯 *Điểm số đạt được:* ${diemSo} điểm!\n📸 *Ảnh chụp bằng chứng:* ${publicUrl}`,
-      );
-
-      Swal.fire(
-        "Nộp bài thành công! 🥳",
-        "Bot đã báo cáo kèm ảnh bằng chứng rõ ràng cho Bé Yêu rồi nhé!",
-        "success",
-      );
-      fetchData();
-    } catch (error) {
-      Swal.fire("Lỗi nộp bài!", error.message, "error");
-    } finally {
-      setLoadingUser(false);
-    }
-  };
-
-  // --- THÊM PHIẾU THƯỞNG PHẠT THỰC TẾ TRÊN ADMIN ---
-  const handleAddTicket = async (e) => {
-    e.preventDefault();
-    const parsedPenalty = parseInt(penaltyAmount) || 0;
-    const parsedReward = parseInt(rewardAmount) || 0;
-
-    if (parsedPenalty === 0 && parsedReward === 0) {
-      Swal.fire({
-        title: "Ơ kìa Công Chúa ơi! 👑💕",
-        text: "Cục cưng ơi, phải tăng hoặc giảm ít nhất 1 phiếu thưởng hoặc phạt rồi hãy bấm nộp chứ nà!",
-        icon: "info",
-        confirmButtonColor: "#ff85c0",
-        background: "#fff0f6",
-      });
-      return;
-    }
-
-    setLoadingTicket(true);
-
-    const textReason = reason.trim() || null;
-    const finalRewardReason = parsedReward !== 0 ? textReason : null;
-    const finalPenaltyReason = parsedPenalty !== 0 ? textReason : null;
-
-    try {
-      // 1. Thêm dữ liệu vào bảng chính (thêm .select() để lấy lại ID vừa tạo)
-      const { data, error } = await supabase
-        .from("rewards_penalties")
-        .insert([
-          {
-            date: inputDate,
-            penalty_amount: parsedPenalty,
-            reward_amount: parsedReward,
-            reward_reason: finalRewardReason,
-            penalty_reason: finalPenaltyReason,
-          },
-        ])
-        .select(); // <--- Rất quan trọng, phải có .select() thì mới lấy được ID
-
-      if (error) throw error;
-
-      // 2. GHI LOG NGAY SAU KHI THÊM THÀNH CÔNG
-      let logMsg = "";
-      const reasonText = textReason || "Không có";
-
-      if (parsedReward > 0 && parsedPenalty === 0) {
-        // Chỉ có thưởng
-        logMsg = `Em yêu đã thêm ${parsedReward} phiếu thưởng, Lí do: ${reasonText}`;
-      } else if (parsedPenalty > 0 && parsedReward === 0) {
-        // Chỉ có phạt
-        logMsg = `Em yêu đã thêm ${parsedPenalty} phiếu phạt, Lí do: ${reasonText}`;
-      } else {
-        // Hỗn hợp cả hai
-        logMsg = `Em yêu đã thêm ${parsedReward} phiếu thưởng : ${parsedPenalty} phạt, Lí do: ${reasonText}`;
-      }
-
-      await logAction("INSERT", data[0].id, logMsg);
-
-      // 3. Thông báo và làm mới dữ liệu
-      if (parsedReward > 0 && parsedPenalty === 0) {
-        Swal.fire({
-          title: "Ting Ting! Phát Thưởng Thôi Nào! 🎉🎁",
-          text: `Đã cộng thêm thành công ${parsedReward} phiếu vào ví rồi nha! Yêu Công Chúa lắm luôn đó, moah moah~ 💋✨`,
-          icon: "success",
-          confirmButtonColor: "#4CAF50",
-          background: "#f0fdf4", // Nền xanh lá dịu mát ngập tràn năng lượng tích cực
-        });
-      } else if (parsedPenalty > 0 && parsedReward === 0) {
-        // 💀 THÔNG BÁO KHI CHỈ CÓ PHẠT (BUỒN HỜN DỖI)
-        Swal.fire({
-          title: "Úi chu cha... Lên Sổ Đoạn Trường! 💀💔",
-          text: `Nộp phiếu phạt -${parsedPenalty} điểm thành công! Ai biểu hư chi cho Công Chúa giận nè, lo mà sửa sai đi nha! 👿🔥`,
-          icon: "warning",
-          confirmButtonColor: "#f44336",
-          background: "#fff1f2", // Nền đỏ hồng nhẹ cảnh báo "nguy hiểm"
-        });
-      } else {
-        // HỖN HỢP VỪA THƯỞNG VỪA PHẠT
-        Swal.fire({
-          title: "Vừa Đấm Vừa Xoa Thành Công! ⚖️💕",
-          text: `Đã ghi nhận +${parsedReward} thưởng và -${parsedPenalty} phạt vào sổ đầu bài rồi nhen em yêu!`,
-          icon: "success",
-          confirmButtonColor: "#ff85c0",
-          background: "#fff0f6",
-        });
-      }
-      // Reset sau khi thành công
-      setPenaltyAmount(0);
-      setRewardAmount(0);
-      setReason("");
-
-      // 4. Gọi fetchData để cập nhật giao diện
-      await fetchData();
-    } catch (error) {
-      Swal.fire({
-        title: "Huhu lỗi mất rồi cục cưng ơi! 🥺",
-        text: "Hệ thống hờn dỗi chút xíu rồi nè: " + error.message,
-        icon: "error",
-        confirmButtonColor: "#ff85c0",
-        background: "#fff0f6",
-      });
-    } finally {
-      setLoadingTicket(false);
-    }
-  };
-
-  // --- XỬ LÝ XÓA PHIẾU THƯỞNG PHẠT (CHỈ ADMIN) ---
-  // Ní đổi tham số từ 'id' thành 'item'
-  const handleDeleteTicket = async (item) => {
-    // 1. Xác nhận trước khi xóa
-    const result = await Swal.fire({
-      title: "Xóa dòng này hả em yêu? 🥺",
-      text: "Em có chắc chắn muốn xóa dòng thưởng phạt này không?",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#ff85c0",
-      cancelButtonColor: "#ffcce6",
-      confirmButtonText: "Đúng rồi, xóa đi!",
-      cancelButtonText: "Hủy bỏ",
-      background: "#fff0f6",
-      customClass: { popup: "rounded-2xl" },
-    });
-
-    if (!result.isConfirmed) return;
-
-    try {
-      // 2. Ghi log trước khi xóa
-      let logMsg = "";
-      const reasonText =
-        item.reward_reason || item.penalty_reason || "Không có";
-
-      // Logic cho Delete
-      const rAmount = item.reward_amount || 0;
-      const pAmount = item.penalty_amount || 0;
-
-      if (rAmount > 0 && pAmount === 0) {
-        // Chỉ có thưởng
-        logMsg = `Em yêu đã xóa ${rAmount} phiếu thưởng, Lí do: ${reasonText}`;
-      } else if (pAmount > 0 && rAmount === 0) {
-        // Chỉ có phạt
-        logMsg = `Em yêu đã xóa ${pAmount} phiếu phạt, Lí do: ${reasonText}`;
-      } else {
-        // Hỗn hợp cả hai
-        logMsg = `Em yêu đã xóa ${rAmount} phiếu thưởng : ${pAmount} phạt, Lí do: ${reasonText}`;
-      }
-
-      await logAction("DELETE", item.id, logMsg);
-
-      // 3. Thực hiện xóa từ Database bằng item.id
-      const { error } = await supabase
-        .from("rewards_penalties")
-        .delete()
-        .eq("id", item.id);
-
-      if (error) throw error;
-
-      // 4. Cập nhật giao diện
-      await fetchData();
-      Swal.fire({
-        title: "Đã xóa! ✨",
-        text: 'Đã xóa bỏ "dấu vết" này khỏi sổ đầu bài.',
-        icon: "success",
-        confirmButtonColor: "#ff85c0",
-      });
-    } catch (error) {
-      Swal.fire({
-        title: "Lỗi xóa sổ! 🥺",
-        text: `Có chút trục trặc: ${error.message}`,
-        icon: "error",
-      });
-    }
-  };
-
-  // --- ĐẶT NÓ Ở ĐÂY (NGANG HÀNG VỚI CÁC HÀM KHÁC) ---
-  const handleEditReward = async (item) => {
-    const isReward = (item.reward_amount || 0) > 0;
-    const currentAmount = Math.abs(
-      (item.reward_amount || 0) + (item.penalty_amount || 0),
+  if (checking)
+    return (
+      <main className="login-wrap" role="status">
+        Đang mở góc nhỏ của tụi mình…
+      </main>
     );
-    const currentReason = item.reward_reason || item.penalty_reason || "";
-
-    const { value: formValues } = await Swal.fire({
-      title: '<h2 style="color: #db2777; margin: 0;">Sửa điểm `nha! ✨</h2>',
-      html: `
-      <div style="text-align: left; padding: 10px;">
-        <div id="swal-type-container" style="display: flex; gap: 10px; margin-bottom: 20px;">
-          <div id="btn-reward" style="flex:1; padding: 12px; text-align: center; border-radius: 12px; font-weight: bold; cursor: pointer; border: 2px solid #16a34a; transition: 0.3s;">🎁 Thưởng</div>
-          <div id="btn-penalty" style="flex:1; padding: 12px; text-align: center; border-radius: 12px; font-weight: bold; cursor: pointer; border: 2px solid #dc2626; transition: 0.3s;">💀 Phạt</div>
-        </div>
-        
-        <label style="font-weight: 600; color: #4b5563;">💰 Số điểm</label>
-        <input id="swal-edit-amount" type="number" value="${currentAmount}" 
-          style="width: 100%; padding: 12px; margin: 8px 0 20px 0; border: 2px solid #fbcfe8; border-radius: 10px; font-size: 16px; box-sizing: border-box;">
-        
-        <label style="font-weight: 600; color: #4b5563;">📝 Lí do</label>
-        <input id="swal-edit-reason" value="${currentReason}" 
-          style="width: 100%; padding: 12px; margin: 8px 0; border: 2px solid #fbcfe8; border-radius: 10px; font-size: 16px; box-sizing: border-box;">
-      </div>
-    `,
-      confirmButtonText: "Lưu thay đổi ✨",
-      confirmButtonColor: "#db2777",
-      background: "#fff0f6",
-      customClass: { popup: "rounded-xl" },
-      showCancelButton: true,
-      didOpen: () => {
-        let selectedType = isReward ? "reward" : "penalty";
-        const btnReward = document.getElementById("btn-reward");
-        const btnPenalty = document.getElementById("btn-penalty");
-
-        const updateUI = () => {
-          btnReward.style.backgroundColor =
-            selectedType === "reward" ? "#16a34a" : "transparent";
-          btnReward.style.color =
-            selectedType === "reward" ? "#fff" : "#16a34a";
-          btnPenalty.style.backgroundColor =
-            selectedType === "penalty" ? "#dc2626" : "transparent";
-          btnPenalty.style.color =
-            selectedType === "penalty" ? "#fff" : "#dc2626";
-        };
-
-        btnReward.onclick = () => {
-          selectedType = "reward";
-          updateUI();
-        };
-        btnPenalty.onclick = () => {
-          selectedType = "penalty";
-          updateUI();
-        };
-        updateUI();
-      },
-      preConfirm: () => {
-        const type =
-          document.getElementById("btn-reward").style.backgroundColor ===
-            "rgb(22, 163, 74)"
-            ? "reward"
-            : "penalty";
-        return {
-          amount: Number(document.getElementById("swal-edit-amount").value),
-          reason: document.getElementById("swal-edit-reason").value,
-          type: type,
-        };
-      },
-    });
-
-    if (formValues) {
-      const updateData = {
-        reward_amount:
-          formValues.type === "reward" ? Math.abs(formValues.amount) : 0,
-        penalty_amount:
-          formValues.type === "penalty" ? Math.abs(formValues.amount) : 0,
-        reward_reason: formValues.type === "reward" ? formValues.reason : null,
-        penalty_reason:
-          formValues.type === "penalty" ? formValues.reason : null,
-      };
-
-      const { error } = await supabase
-        .from("rewards_penalties")
-        .update(updateData)
-        .eq("id", item.id);
-      if (!error) {
-        // --- 1. Xác định dữ liệu CŨ để làm mốc so sánh ---
-        const oldAmount =
-          (item.reward_amount || 0) + (item.penalty_amount || 0);
-        const oldType = (item.reward_amount || 0) > 0 ? "thưởng" : "phạt";
-
-        // --- 2. Xác định dữ liệu MỚI ---
-        const newAmount = formValues.amount;
-        const newType = formValues.type === "reward" ? "thưởng" : "phạt";
-
-        // --- 3. Tạo câu thông báo thông minh ---
-        const logMessage = `Sửa từ ${oldAmount} điểm ${oldType} --> ${newAmount} điểm ${newType}. Lí do: ${formValues.reason}`;
-
-        // --- 4. Ghi log ---
-        await logAction("UPDATE", item.id, logMessage);
-
-        await fetchData();
-        Swal.fire({
-          title: "Đã sửa xong! 🪄",
-          text: logMessage, // Hiển thị luôn cho ní xem trong thông báo
-          icon: "success",
-          background: "#fff0f6",
-          confirmButtonColor: "#db2777",
-        });
-      }
-    }
-  };
-
-  // --- GỬI THÔNG BÁO TỔNG KẾT TELEGRAM ---
-  const handleSummaryAndNotify = async () => {
-    const ngayChon = inputDate;
-    const hienThiNgay = new Date(ngayChon).toLocaleDateString("vi-VN");
-
-    let tongPhatHomNay = 0;
-    let tongThuongHomNay = 0;
-    let tongDoiQuaHomNay = 0;
-
-    const rpToday = rewardsPenalties.filter((item) => item.date === ngayChon);
-
-    rpToday.forEach((item) => {
-      const phat = Number(item.penalty_amount || 0);
-      const thuong = Number(item.reward_amount || 0);
-      tongPhatHomNay += phat;
-      if (thuong > 0) {
-        tongThuongHomNay += thuong;
-      } else if (thuong < 0) {
-        tongDoiQuaHomNay += Math.abs(thuong);
-      }
-    });
-
-    const displayDoiQua = tongDoiQuaHomNay > 0 ? `-${tongDoiQuaHomNay}` : "0";
-
-    // 1. Thông báo gửi cho Anh yêu (vẫn giữ vẻ "quyền lực" và răn đe)
-    const thongBaoChoAnh =
-      `🎀 ✨ *SỔ ĐẦU BÀI HÔM NAY* ✨ 🎀\n` +
-      `📅 Ngày chốt: *${hienThiNgay}*\n` +
-      `─────────────────────────\n` +
-      `🎁 Thưởng: *+${tongThuongHomNay}*\n` +
-      `💀 Phạt: *-${tongPhatHomNay}*\n` +
-      `🛒 Đã đổi: *${displayDoiQua}*\n` +
-      `─────────────────────────\n` +
-      `🎯 *Quỹ tích lũy:* ${totalRewards} phiếu\n\n` +
-      `${totalRewards >= 0
-        ? "🧸 Anh yêu vẫn còn dư dả nè! 🥰"
-        : "💔 Anh yêu nợ " +
-        Math.abs(totalRewards) +
-        " phiếu phạt! Đến giờ ăn đòn!!! 👿"
-      }`;
-
-    // 2. Thông báo gửi cho Công chúa (ngọt ngào, báo cáo để Công chúa nắm tình hình)
-    const thongBaoChoEm =
-      `💖 ✨ *BÁO CÁO CỦA CÔNG CHÚA* ✨ 💖\n` +
-      `📅 Ngày chốt: *${hienThiNgay}*\n` +
-      `─────────────────────────\n` +
-      `🎁 Thưởng: *+${tongThuongHomNay}*\n` +
-      `💀 Phạt: *-${tongPhatHomNay}*\n` +
-      `🛒 Đã đổi: *${displayDoiQua}*\n` +
-      `─────────────────────────\n` +
-      `🎯 *Quỹ hiện tại:* ${totalRewards} phiếu\n\n` +
-      `${totalRewards >= 0
-        ? "🥰 Quỹ vẫn đang ổn áp, Công chúa yên tâm nha!"
-        : "👑 Anh yêu đang nợ Công chúa " +
-        Math.abs(totalRewards) +
-        " phiếu phạt. Nhớ nhắc ảnh ăn đòn nhé! 😉"
-      }`;
-
-    try {
-      // Bắn cho Anh người yêu (Sử dụng đúng tên biến thongBaoChoAnh)
-      if (idTeleCuaAnh) {
-        await callTelegramAPI(idTeleCuaAnh, thongBaoChoAnh);
-      }
-
-      // Bắn tiếp cho Công chúa (Sử dụng đúng tên biến thongBaoChoEm)
-      if (idTeleCuaEm) {
-        await callTelegramAPI(idTeleCuaEm, thongBaoChoEm);
-      }
-
-      Swal.fire({
-        title: 'Báo cáo đã "bay" đến nơi rồi! 💌✨',
-        html: `
-          <div style="text-align: center;">
-            <p>Tin nhắn đã được gửi đến Telegram cho cả Anh yêu và Công chúa rồi nha! 🚀</p>
-            <p>Đợi xem anh ấy có "run rẩy" khi đọc báo cáo không nào... 🥰</p>
-          </div>
-        `,
-        icon: "success",
-        confirmButtonColor: "#ff85c0",
-        background: "#fff0f6",
-        confirmButtonText: "Đã rõ, hóng kết quả! 👑",
-      });
-    } catch (err) {
-      console.error(err); // Thêm dòng này để ní mở F12 xem chi tiết lỗi nếu vẫn bị
-      Swal.fire({
-        title: "Ôi hỏng rồi! 🥺",
-        text: "Có chút trục trặc khi bắn tin, Công chúa thử lại lần nữa nhé!",
-        icon: "error",
-        confirmButtonColor: "#ff85c0",
-        background: "#fff0f6",
-      });
-    }
-  };
-
-  return (
-    <div className="App">
-      <Routes>
-        <Route
-          path="/"
-          element={
-            !isLoggedIn ? (
-              <LoginView
-                handleLogin={handleLogin}
-                username={username}
-                setUsername={setUsername}
-                password={password}
-                setPassword={setPassword}
-                loginError={loginError}
-              />
-            ) : role === "admin" ? (
-              <Navigate to="/admin" />
-            ) : (
-              <Navigate to="/user" />
-            )
-          }
-        />
-
-        <Route
-          path="/admin"
-          element={
-            isLoggedIn && role === "admin" ? (
-              <AdminView
-                handleLogout={handleLogout}
-                handleSendQuiz={handleSendQuiz}
-                kahootLink={kahootLink}
-                setKahootLink={setKahootLink}
-                loadingAdmin={loadingAdmin}
-                messageAdmin={messageAdmin}
-                handleSummaryAndNotify={handleSummaryAndNotify}
-                handleAddTicket={handleAddTicket}
-                inputDate={inputDate}
-                setInputDate={setInputDate}
-                rewardAmount={rewardAmount}
-                setRewardAmount={setRewardAmount}
-                penaltyAmount={penaltyAmount}
-                setPenaltyAmount={setPenaltyAmount}
-                reason={reason}
-                setReason={setReason}
-                loadingTicket={loadingTicket}
-                rewardsPenalties={rewardsPenalties}
-                handleDeleteTicket={handleDeleteTicket}
-                quizzes={quizzes}
-                handleDeleteQuiz={handleDeleteQuiz}
-                handleEditQuiz={handleEditQuiz}
-                handleEditReward={handleEditReward}
-                chartData={chartData}
-                loadingInitial={loadingInitial}
-                showAuditLog={showAuditLog}
-                setShowAuditLog={setShowAuditLog} // NI THIẾU DÒNG NÀY Ở ĐÂY NÈ!
-                auditLogs={auditLogs}
-                fetchLogs={fetchLogs}
-                newSpinCost={newSpinCost}
-                setNewSpinCost={setNewSpinCost}
-                prizes={prizes}
-                setPrizes={setPrizes}
-                updateWheelSettings={updateWheelSettings}
-                addPrize={addPrize}
-                removePrize={removePrize}
-                updatePrize={updatePrize}
-                isWheelSettingsOpen={isWheelSettingsOpen}
-                setIsWheelSettingsOpen={setIsWheelSettingsOpen}
-              />
-            ) : (
-              <Navigate to="/" />
-            )
-          }
-        />
-
-        <Route
-          path="/user"
-          element={
-            isLoggedIn && role === "user" ? (
-              <UserView
-                handleLogout={handleLogout}
-                honthuong={honthuong}
-                soHunMoi={soHunMoi}
-                soHunSau={soHunSau}
-                handleExchangeGift={handleExchangeGift}
-                loadingExchange={loadingExchange}
-                totalRewards={totalRewards}
-                quizzes={quizzes}
-                scores={scores}
-                setScores={setScores}
-                selectedFiles={selectedFiles}
-                setSelectedFiles={setSelectedFiles}
-                handleSubmitScore={handleSubmitScore}
-                loadingUser={loadingUser}
-                rewardsPenalties={rewardsPenalties}
-                loadingInitial={loadingInitial}
-                chartData={chartData}
-                handleLuckyWheelWin={handleLuckyWheelWin}
-                prizes={prizes}
-                setPrizes={setPrizes}
-                spinCost={spinCost}
-                isOpenInventory={isOpenInventory}
-                setIsOpenInventory={setIsOpenInventory}
-              />
-            ) : (
-              <Navigate to="/" />
-            )
-          }
-        />
-
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-      {/* POPUP PHIÊN BẢN MỚI CUTE */}
-      {showUpdateModal && !loadingUser && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%", // Giữ nguyên để che phủ màn hình
-            backgroundColor: "rgba(0, 0, 0, 0.3)",
-            backdropFilter: "blur(5px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 9999,
-            padding: "10px", // Thêm padding để trên đt không bị sát mép
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: "#fff",
-              padding: "25px", // Giảm nhẹ padding trên đt
-              borderRadius: "30px",
-              maxWidth: "380px",
-              width: "100%",
-              maxHeight: "85vh", // QUAN TRỌNG: Chỉ cao tối đa 85% màn hình
-              display: "flex",
-              flexDirection: "column", // Để các phần tử xếp chồng
-              boxShadow: "0 20px 40px rgba(0,0,0,0.15)",
-              border: "4px solid #fde8e8",
-            }}
-          >
-            <div style={{ fontSize: "40px", marginBottom: "5px" }}>✨</div>
-            <h2
-              style={{
-                color: "#ff6b6b",
-                margin: "0 0 10px 0",
-                fontFamily: "cursive",
-              }}
-            >
-              Phiên bản {APP_CONFIG.currentVersion}
-            </h2>
-
-            {/* KHU VỰC CUỘN: Ní thêm cái div này bọc ngoài ul */}
-            <div style={{ flex: 1, overflowY: "auto", textAlign: "left" }}>
-              <ul
-                style={{
-                  paddingLeft: "20px",
-                  color: "#666",
-                  lineHeight: "1.6",
-                  margin: 0,
-                }}
-              >
-                {APP_CONFIG.features.map((item, index) => (
-                  <li key={index} style={{ marginBottom: "8px" }}>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <button
-              onClick={() => {
-                localStorage.setItem("appVersion", APP_CONFIG.currentVersion);
-                setShowUpdateModal(false);
-              }}
-              style={{
-                marginTop: "20px",
-                padding: "12px 30px",
-                backgroundColor: "#ff9a9e",
-                background: "linear-gradient(to right, #ff9a9e, #fad0c4)",
-                color: "white",
-                border: "none",
-                borderRadius: "50px",
-                fontSize: "16px",
-                fontWeight: "bold",
-                cursor: "pointer",
-                flexShrink: 0, // Đảm bảo nút không bị bóp méo
-              }}
-            >
-              Chốt đơn thôi! 💖
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Ní thêm đoạn style này vào phía trên cùng của file hoặc trong CSS để có hiệu ứng mờ dần */}
-      <style>{`
-  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-`}</style>
-    </div>
+  return session ? (
+    <LoveSpace key={session.user.id} user={session.user} />
+  ) : (
+    <Login initialError={authError} />
   );
 }
 
-// =========================================================================
-// CÁC COMPONENT TĨNH ĐỘC LẬP CHỐNG MẤT FOCUS KHI GÕ CHỮ
+function Login({ initialError }) {
+  const [error, setError] = useState(initialError);
+  const [busy, setBusy] = useState(false);
+  const login = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: form.get("email").trim(),
+        password: form.get("password"),
+      });
+      if (error) throw error;
+    } catch {
+      setError("Chưa đăng nhập được. Kiểm tra email, mật khẩu và kết nối nhé.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <main className="login-wrap">
+      <section className="card login-card">
+        <span className="hero-icon">💌</span>
+        <p className="eyebrow">CHỈ DÀNH CHO HAI ĐỨA</p>
+        <h1>Góc nhỏ của tụi mình</h1>
+        <p className="muted">Một chút quan tâm, một chút bất ngờ, mỗi ngày.</p>
+        <form onSubmit={login} className="stack">
+          <label>
+            Email
+            <input
+              name="email"
+              type="email"
+              autoComplete="username"
+              required
+              placeholder="Email của bạn"
+            />
+          </label>
+          <label>
+            Mật khẩu
+            <input
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              placeholder="Mật khẩu riêng của bạn"
+            />
+          </label>
+          <button disabled={busy}>
+            {busy ? "Đang đăng nhập…" : "Vào nhà thôi ♡"}
+          </button>
+        </form>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+      </section>
+    </main>
+  );
+}
 
-const LoginView = ({
-  handleLogin,
-  username,
-  setUsername,
-  password,
-  setPassword,
-  loginError,
-}) => (
-  <div style={styles.containerLogin}>
-    <div style={styles.cardLogin}>
-      <h2 style={{ color: "#ff4d94", marginBottom: "20px" }}>
-        🎮 Love Game Login 💖
-      </h2>
-      <form onSubmit={handleLogin} style={styles.form}>
-        <label style={styles.label}>Tên đăng nhập:</label>
-        <input
-          type="text"
-          placeholder="Gõ tài khoản..."
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          style={styles.input}
-          required
-        />
-        <label style={styles.label}>Mật khẩu:</label>
-        <input
-          type="password"
-          placeholder="Gõ mật khẩu..."
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={styles.input}
-          required
-        />
-        <button type="submit" style={styles.buttonLogin}>
-          Đăng Nhập
-        </button>
-      </form>
-      {loginError && (
-        <p
-          style={{
-            color: "red",
-            marginTop: "15px",
-            fontSize: "14px",
-            fontWeight: "500",
+function LoveSpace({ user }) {
+  const { data, error, connected, refresh } = useLoveData(user.id);
+  const [tab, setTab] = useState("today");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [actionError, setActionError] = useState("");
+  const lock = useRef(false);
+  const pendingRequests = useRef(new Map());
+  const run = useCallback(
+    async (action, success = "") => {
+      if (lock.current) return;
+      lock.current = true;
+      setBusy(true);
+      setMessage("");
+      setActionError("");
+      try {
+        await action();
+        if (success) setMessage(success);
+        await refresh();
+      } catch (err) {
+        setActionError(err.message || "Chưa lưu được. Thử lại nhé.");
+      } finally {
+        lock.current = false;
+        setBusy(false);
+      }
+    },
+    [refresh],
+  );
+  const notify = async (text) => {
+    try {
+      if (!(await notifyPartner(text)))
+        setMessage(
+          "Dữ liệu đã lưu. Telegram chưa gửi được; người kia vẫn xem được trong web.",
+        );
+    } catch {
+      setMessage("Dữ liệu đã lưu. Telegram tạm thời chưa kết nối.");
+    }
+  };
+  const redeem = async (kind) => {
+    // Persist the request ID before sending: retry after an interrupted response cannot double-charge.
+    const key = `love-pending:${user.id}:${kind}`;
+    let id = pendingRequests.current.get(kind) || localStorage.getItem(key);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(key, id);
+    }
+    pendingRequests.current.set(kind, id);
+    try {
+      const result = await rpc("love_redeem", {
+        p_request_id: id,
+        p_kind: kind,
+      });
+      pendingRequests.current.delete(kind);
+      localStorage.removeItem(key);
+      return result;
+    } catch (err) {
+      // A server rejection is definitive; transport failures keep the idempotency key for retry.
+      if (err.code === "P0001" || err.code === "42501") {
+        pendingRequests.current.delete(kind);
+        localStorage.removeItem(key);
+      }
+      throw err;
+    }
+  };
+  const signOut = () =>
+    run(async () => {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    });
+  if (!data)
+    return (
+      <main className="login-wrap">
+        <section className="card">
+          <p role="status">{error || "Đang tải những điều nhỏ xinh…"}</p>
+          <button onClick={refresh}>Tải lại</button>
+          <button className="text-button" onClick={signOut}>
+            Đăng xuất
+          </button>
+        </section>
+      </main>
+    );
+  const me = data.love_members.find((member) => member.user_id === user.id);
+  const role = memberRole(me);
+  if (!role)
+    return (
+      <main className="login-wrap">
+        <section className="card">
+          <h1>Tài khoản chưa được mời</h1>
+          <p>Chủ web cần thêm tài khoản này vào danh sách hai thành viên.</p>
+          <button onClick={signOut}>Đăng xuất</button>
+        </section>
+      </main>
+    );
+  const admin = role === "admin";
+  const total = balanceOf(data.rewards_penalties);
+  const settings = data.wheel_settings.find((s) => s.id === 1);
+  const pending = data.quizzes.filter((q) => q.status !== "COMPLETED");
+  const waiting = data.user_inventory.filter((g) =>
+    ["Chờ hẹn", "Đã hẹn"].includes(g.status),
+  );
+  const tabs = [
+    ["today", "☀️", "Hôm nay"],
+    ["tasks", "🌱", "Nhiệm vụ"],
+    ["gifts", "🎁", "Quà"],
+    ["together", "💌", "Góc chung"],
+    ["history", "📖", "Nhật ký"],
+  ];
+  if (admin) tabs.push(["settings", "⚙️", "Cài đặt"]);
+  const chart = [...data.rewards_penalties]
+    .reverse()
+    .slice(-30)
+    .map((row) => ({
+      date: displayDate(row.date),
+      reward: Number(row.reward_amount),
+      penalty: Number(row.penalty_amount),
+    }));
+  return (
+    <div className="app-shell">
+      <header className="app-header">
+        <a
+          className="brand"
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            setTab("today");
           }}
         >
-          {loginError}
-        </p>
-      )}
-    </div>
-  </div>
-);
-
-const AdminView = ({
-  handleLogout,
-  handleSendQuiz,
-  kahootLink,
-  setKahootLink,
-  loadingAdmin,
-  messageAdmin,
-  handleSummaryAndNotify,
-  handleAddTicket,
-  inputDate,
-  setInputDate,
-  rewardAmount,
-  setRewardAmount,
-  penaltyAmount,
-  setPenaltyAmount,
-  reason,
-  setReason,
-  loadingTicket,
-  rewardsPenalties,
-  handleDeleteTicket,
-  quizzes,
-  handleDeleteQuiz,
-  handleEditQuiz,
-  handleEditReward,
-  chartData,
-  fetchLogs,
-  showAuditLog,
-  auditLogs,
-  setShowAuditLog,
-  loadingInitial,
-  newSpinCost,
-  setNewSpinCost,
-  newPrizes,
-  setNewPrizes,
-  updateWheelSettings,
-  prizes,
-  setPrizes,
-  addPrize,
-  removePrize,
-  updatePrize,
-  isWheelSettingsOpen,
-  setIsWheelSettingsOpen,
-}) => {
-  if (loadingInitial) return <CuteLoading />;
-
-  return (
-    <div style={styles.containerAdmin}>
-      <button onClick={handleLogout} style={styles.btnLogout}>
-        🚪 Đăng xuất
-      </button>
-      <div style={styles.mainWrapper}>
-        {/* 1. TRẠM PHÁT THỬ THÁCH */}
-        <div style={styles.card}>
-          <h1 style={styles.title}>💖 Trạm Phát Thử Thách 💖</h1>
-          <p style={styles.subtitle}>
-            Dành riêng cho Công Chúa của anh (Admin)
-          </p>
-          <form onSubmit={handleSendQuiz} style={styles.form}>
-            <label style={styles.label}>
-              Dán Link Kahoot vào đây nè em yêu:
-            </label>
-            <input
-              type="text"
-              placeholder="https://kahoot.it/..."
-              value={kahootLink}
-              onChange={(e) => setKahootLink(e.target.value)}
-              style={styles.inputAdmin}
-              disabled={loadingAdmin}
-            />
-            <ButtonCute
-              type="submit"
-              style={styles.buttonAdmin}
-              loading={loadingAdmin}
-            >
-              🚀 Bắn Thử Thách Cho Người Yêu
-            </ButtonCute>
-          </form>
-          {messageAdmin && <p style={styles.message}>{messageAdmin}</p>}
+          ♡ <span>Góc nhỏ của tụi mình</span>
+        </a>
+        <button className="text-button" disabled={busy} onClick={signOut}>
+          Đăng xuất
+        </button>
+      </header>
+      <main className="page-content">
+        <div className="welcome">
+          <div>
+            <p className="eyebrow">MỘT NGÀY NỮA, CÓ NHAU</p>
+            <h1>
+              Chào {me.display_name} <span>🌷</span>
+            </h1>
+            <p className="muted">
+              {displayDate(localDate())} · Những điều nhỏ làm nên ngày đáng nhớ.
+            </p>
+          </div>
+          <span className={`connection ${connected ? "live" : ""}`}>
+            {connected ? "● Đang đồng bộ" : "○ Đang kết nối lại"}
+          </span>
         </div>
-        {/* --- CHỈ CẦN THÊM KHÚC NÀY VÀO LÀ XONG --- */}
-        <div className="admin-gift-zone" style={{ marginTop: "40px" }}>
-          <AdminGiftManager />
-        </div>
-
-        {/* 2. CẤU HÌNH VÒNG QUAY (Với tính năng Ẩn/Hiện) */}
-        <div style={{ marginTop: "30px" }}>
-          <button
-            onClick={() => setIsWheelSettingsOpen(!isWheelSettingsOpen)}
-            style={{
-              width: "100%",
-              padding: "15px",
-              marginBottom: "10px",
-              backgroundColor: "#fff",
-              border: "2px dashed #f43f5e",
-              borderRadius: "20px",
-              cursor: "pointer",
-              fontWeight: "bold",
-              color: "#f43f5e",
-              fontSize: "16px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            ⚙️ Tùy Chỉnh Vòng Quay Nhân Phẩm {isWheelSettingsOpen ? "▲" : "▼"}
-          </button>
-
-          {isWheelSettingsOpen && (
-            <div
-              style={{
-                padding: "25px",
-                borderRadius: "20px",
-                backgroundColor: "#fff",
-                boxShadow: "0 10px 25px rgba(0,0,0,0.08)",
-                border: "1px solid #fecdd3",
-              }}
+        <nav className="tabs" aria-label="Điều hướng chính">
+          {tabs.map(([id, icon, label]) => (
+            <button
+              key={id}
+              className={tab === id ? "active" : ""}
+              aria-current={tab === id ? "page" : undefined}
+              onClick={() => setTab(id)}
             >
-              <div style={{ marginBottom: "20px" }}>
-                <label
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: "bold",
-                    color: "#4b5563",
-                    marginBottom: "8px",
-                    display: "block",
-                  }}
-                >
-                  Chi phí lượt quay (Số phiếu):
-                </label>
-                <input
-                  type="number"
-                  value={newSpinCost}
-                  onChange={(e) => setNewSpinCost(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    borderRadius: "10px",
-                    border: "1px solid #e5e7eb",
-                    boxSizing: "border-box",
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: "20px" }}>
-                <label
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: "bold",
-                    color: "#4b5563",
-                    marginBottom: "8px",
-                    display: "block",
-                  }}
-                >
-                  Danh sách phần thưởng:
-                </label>
-                {prizes.map((p, index) => (
-                  <div
-                    key={index}
-                    style={{ display: "flex", gap: "8px", marginBottom: "8px" }}
-                  >
-                    <input
-                      value={p.text}
-                      onChange={(e) => updatePrize(index, e.target.value)}
-                      placeholder={`Nhập tên quà ${index + 1}`}
-                      style={{
-                        flex: 1,
-                        padding: "10px",
-                        borderRadius: "8px",
-                        border: "1px solid #e5e7eb",
-                      }}
-                    />
-                    <button
-                      onClick={() => removePrize(index)}
-                      style={{
-                        padding: "5px 12px",
-                        backgroundColor: "#fee2e2",
-                        color: "#ef4444",
-                        border: "none",
-                        borderRadius: "8px",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Xóa
-                    </button>
-                  </div>
-                ))}
-                <button
-                  onClick={addPrize}
-                  style={{
-                    width: "100%",
-                    padding: "10px",
-                    marginTop: "5px",
-                    backgroundColor: "#f3f4f6",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    fontWeight: "bold",
-                  }}
-                >
-                  + Thêm phần thưởng
+              <span>{icon}</span>
+              {label}
+            </button>
+          ))}
+        </nav>
+        {(error || actionError) && (
+          <div className="error" role="alert">
+            {actionError || error}
+            <button className="text-button" onClick={refresh}>
+              Tải lại dữ liệu
+            </button>
+          </div>
+        )}
+        {message && (
+          <div className="notice" role="status">
+            {message}
+          </div>
+        )}
+        {tab === "today" && (
+          <section className="stack">
+            <div className="hero-card">
+              <div>
+                <p className="eyebrow">HÔM NAY CỦA TỤI MÌNH</p>
+                <h2>
+                  Để dành một chút
+                  <br />
+                  ngọt ngào cho nhau.
+                </h2>
+                <p>Một lời nhắn, một nhiệm vụ nhỏ, hay một buổi hẹn?</p>
+                <button onClick={() => setTab("together")}>
+                  Gửi một lời quan tâm 💌
                 </button>
               </div>
-
-              <button
-                onClick={updateWheelSettings}
-                style={{
-                  width: "100%",
-                  padding: "14px",
-                  backgroundColor: "#f43f5e",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "12px",
-                  fontWeight: "bold",
-                  fontSize: "16px",
-                  cursor: "pointer",
-                }}
-              >
-                Cập nhật vòng quay ngay ✨
+              <span className="hero-art" aria-hidden="true">
+                💑
+              </span>
+            </div>
+            <div className="stats">
+              <button className="stat" onClick={() => setTab("gifts")}>
+                <span>🎟️ Phiếu hiện có</span>
+                <strong>{total}</strong>
+                <small>Số dư từ lịch sử thực tế</small>
+              </button>
+              <button className="stat" onClick={() => setTab("tasks")}>
+                <span>🌱 Nhiệm vụ còn lại</span>
+                <strong>{pending.length}</strong>
+                <small>Cùng hoàn thành từng chút</small>
+              </button>
+              <button className="stat" onClick={() => setTab("gifts")}>
+                <span>🎁 Quà đang chờ hẹn</span>
+                <strong>{waiting.length}</strong>
+                <small>Chọn một ngày dành cho nhau</small>
               </button>
             </div>
-          )}
-        </div>
-
-        {/* 3. BẢNG QUẢN LÝ THỬ THÁCH (MỚI) */}
-        <div style={styles.cardLarge}>
-          <h2 style={{ color: "#db2777", margin: "0 0 10px 0" }}>
-            📜 Danh sách thử thách đã đăng
-          </h2>
-          <div style={{ overflowX: "auto" }}>
-            <table style={styles.table}>
-              <thead>
-                <tr style={{ backgroundColor: "#fff1f2" }}>
-                  <th style={styles.th}>Ngày</th>
-                  <th style={styles.th}>Link</th>
-                  <th style={styles.th}>Trạng thái</th>
-                  <th style={{ ...styles.th, textAlign: "center" }}>
-                    Hành động
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {(quizzes || []).map((quiz) => (
-                  <tr key={quiz.id} style={styles.tr}>
-                    <td style={styles.td}>
-                      {new Date(quiz.created_at).toLocaleString("vi-VN", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      })}
-                    </td>
-                    <td style={styles.td}>
-                      <a href={quiz.link_kahoot} style={styles.quizLink}>
-                        Xem bài
-                      </a>
-                    </td>
-                    <td style={styles.td}>
-                      {quiz.status === "COMPLETED" ? "✅" : "⏳"}
-                    </td>
-                    <td style={{ ...styles.td, textAlign: "center" }}>
-                      <button
-                        onClick={() => handleEditQuiz(quiz)}
-                        style={{
-                          ...styles.btnDelete,
-                          backgroundColor: "#eab308",
-                          marginRight: "5px",
-                        }}
-                      >
-                        Sửa
-                      </button>
-                      <button
-                        onClick={() => handleDeleteQuiz(quiz.id)}
-                        style={styles.btnDelete}
-                      >
-                        Xóa
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div style={styles.cardLarge}>
-          <h2
-            style={{
-              color: "#1e3a8a",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              margin: "0 0 10px 0",
-            }}
-          >
-            📋 Sổ Đầu Bài Thưởng Phạt{" "}
-            <button onClick={handleSummaryAndNotify} style={styles.btnNotify}>
-              📢 Bắn Tổng Kết Lên Tele
-            </button>
-          </h2>
-
-          {/* --- NÍ DÁN VÀO ĐÂY NÈ --- */}
-          <div style={{ marginBottom: "20px", textAlign: "center" }}>
-            <button
-              onClick={() => {
-                if (!showAuditLog) fetchLogs(); // Chỉ gọi lấy dữ liệu khi người dùng chuẩn bị mở
-                setShowAuditLog(!showAuditLog); // Toggle ẩn/hiện bảng
-              }}
-              style={{
-                padding: "10px 20px",
-                backgroundColor: "#6366f1",
-                color: "white",
-                border: "none",
-                borderRadius: "10px",
-                cursor: "pointer",
-                fontSize: "14px",
-                fontWeight: "600",
-              }}
-            >
-              {showAuditLog ? "Ẩn Lịch Sử Log" : "🔍 Xem Lịch Sử Thêm Điểm"}
-            </button>
-          </div>
-
-          {/* PHẦN HIỂN THỊ LOG (HIỆN RA KHI BẤM) */}
-          {showAuditLog && (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "12px",
-                marginTop: "20px",
-              }}
-            >
-              {/* --- THÊM: Kiểm tra nếu danh sách trống thì hiện thông báo --- */}
-              {auditLogs.length === 0 ? (
-                <div
-                  style={{
-                    textAlign: "center",
-                    padding: "20px",
-                    color: "#9ca3af",
-                    fontStyle: "italic",
-                  }}
-                >
-                  ✨ Sổ trắng tinh khôi! Chưa có ghi chép nào đâu nè Công Chúa
-                  ơi~ 👑
-                </div>
-              ) : (
-                /* --- Danh sách log --- */
-                auditLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    style={{
-                      padding: "16px",
-                      backgroundColor: "#fff",
-                      // Thêm dấu ?. để tránh lỗi khi dữ liệu bị null
-                      borderLeft: `6px solid ${log.action_type === "DELETE" ? "#f43f5e" : log.action_type === "INSERT" ? "#10b981" : "#3b82f6"}`,
-                      borderRadius: "10px",
-                      boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1)",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                    }}
-                  >
-                    <div style={{ flex: 1 }}>
-                      {/* Nếu log bị trống thì hiện chữ mặc định */}
-                      <div
-                        style={{
-                          fontWeight: "700",
-                          color: "#1f2937",
-                          marginBottom: "4px",
-                        }}
-                      >
-                        {log.action_details || "Hành động không xác định"}
-                      </div>
-
-                      <div
-                        style={{
-                          fontSize: "12px",
-                          color: "#6b7280",
-                          display: "flex",
-                          gap: "15px",
-                        }}
-                      >
-                        <span>
-                          📅{" "}
-                          {log.created_at
-                            ? new Date(log.created_at).toLocaleDateString()
-                            : "N/A"}
-                        </span>
-                        <span>
-                          ⏰{" "}
-                          {log.created_at
-                            ? new Date(log.created_at).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                            : ""}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        backgroundColor: "#f3f4f6",
-                        padding: "4px 10px",
-                        borderRadius: "20px",
-                        fontSize: "11px",
-                        fontWeight: "bold",
-                        color: "#374151",
-                        marginLeft: "10px",
-                      }}
-                    >
-                      {log.action_type || "N/A"}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          <div
-            style={{
-              margin: "20px auto",
-              maxWidth: "500px",
-              padding: "10px",
-              backgroundColor: "#fdf2f8",
-              borderRadius: "15px",
-            }}
-          >
-            <ChartSummary data={chartData} />
-          </div>
-
-          <div
-            style={{
-              textAlign: "center",
-              margin: "25px auto",
-              padding: "15px",
-              backgroundColor: "#fff", // Nền trắng tinh khôi
-              borderRadius: "20px", // Bo góc tròn trịa
-              boxShadow: "0 8px 16px rgba(219, 39, 119, 0.15)", // Đổ bóng nhẹ màu hồng
-              border: "1px solid #fbcfe8", // Viền hồng thật mỏng thôi
-              maxWidth: "90%", // Cho nó gọn gàng
-            }}
-          >
-            <p
-              style={{
-                margin: 0,
-                fontSize: "18px",
-                fontWeight: "700",
-                color: "#db2777",
-                letterSpacing: "0.5px", // Giãn chữ một tí cho thoáng
-              }}
-            >
-              ✨ Ghi Chép Sổ Tay Khen Thưởng & "Phạt Yêu" ✨
-            </p>
-          </div>
-
-          <form onSubmit={handleAddTicket} style={styles.newTicketCard}>
-            <div style={styles.newFormGrid}>
-              <div style={styles.inputWrapper}>
-                <label style={styles.newLabel}>📅 Chọn Ngày</label>
-                <input
-                  type="date"
-                  value={inputDate}
-                  onChange={(e) => setInputDate(e.target.value)}
-                  style={styles.newInput}
-                  required
-                />
-              </div>
-              <div style={styles.inputWrapper}>
-                <label style={styles.newLabel}>🎁 Số Phiếu Thưởng</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={rewardAmount}
-                  onChange={(e) => setRewardAmount(e.target.value)}
-                  style={{
-                    ...styles.newInput,
-                    borderLeft: "4px solid #4CAF50",
-                  }}
-                />
-              </div>
-              <div style={styles.inputWrapper}>
-                <label style={styles.newLabel}>💀 Số Phiếu Phạt</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={penaltyAmount}
-                  onChange={(e) => setPenaltyAmount(e.target.value)}
-                  style={{
-                    ...styles.newInput,
-                    borderLeft: "4px solid #F44336",
-                  }}
-                />
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "6px",
-                marginTop: "5px",
-              }}
-            >
-              <label style={styles.newLabel}>📝 Lí do thưởng / phạt:</label>
-              <input
-                type="text"
-                placeholder="Nhập lí do cụ thể vào đây nhen em yêu... 💕"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                style={styles.newInput}
-                disabled={loadingTicket}
-              />
-            </div>
-
-            <ButtonCute
-              type="submit"
-              style={styles.newBtnSubmit}
-              loading={loadingTicket}
-            >
-              🚀 Ghi Vào Sổ Đầu Bài
-            </ButtonCute>
-          </form>
-
-          <div style={{ marginTop: "25px", overflowX: "auto" }}>
-            <table style={styles.table}>
-              <thead>
-                <tr style={{ backgroundColor: "#f1f5f9" }}>
-                  <th style={styles.th}>Ngày chốt điểm</th>
-                  <th style={styles.th}>🎁 Điểm Thưởng tích lũy</th>
-                  <th style={styles.th}>💀 Điểm Phạt nhận về</th>
-                  <th style={styles.th}>📝 Lí Do</th>
-                  <th style={{ ...styles.th, textAlign: "center" }}>
-                    Hành Động
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rewardsPenalties.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      style={{
-                        textAlign: "center",
-                        padding: "20px",
-                        color: "#888",
-                      }}
-                    >
-                      Sổ trống trơn! ✨
-                    </td>
-                  </tr>
-                ) : (
-                  rewardsPenalties.map((item) => (
-                    <tr key={item.id} style={styles.tr}>
-                      <td style={styles.td}>
-                        {new Date(item.created_at).toLocaleString("vi-VN", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          year: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                        })}
-                      </td>
-                      <td
-                        style={{
-                          ...styles.td,
-                          fontWeight: "700",
-                          color: item.reward_amount < 0 ? "#b45309" : "#16a34a",
-                          fontSize: "15px",
-                        }}
-                      >
-                        {item.reward_amount > 0
-                          ? `+${item.reward_amount} Phiếu`
-                          : item.reward_amount < 0
-                            ? `${item.reward_amount}`
-                            : "0"}
-                      </td>
-                      <td
-                        style={{
-                          ...styles.td,
-                          fontWeight: "700",
-                          color: "#dc2626",
-                          fontSize: "15px",
-                        }}
-                      >
-                        {item.penalty_amount > 0
-                          ? `-${item.penalty_amount} Phiếu`
-                          : "0"}
-                      </td>
-                      {/* Hiển thị thông minh linh hoạt: Ưu tiên hiển thị lý do thưởng trước, nếu không có thì lấy lý do phạt */}
-                      <td
-                        style={{
-                          ...styles.td,
-                          color: "#475569",
-                          fontWeight: "500",
-                          fontStyle:
-                            item.reward_reason || item.penalty_reason
-                              ? "normal"
-                              : "italic",
-                        }}
-                      >
-                        {item.reward_reason ||
-                          item.penalty_reason ||
-                          "Không có lí do"}
-                      </td>
-                      <td style={styles.td}>
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "5px",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              // KIỂM TRA: Xem trong console nó báo item là gì
-                              console.log(
-                                "Ní đang bấm vào dòng có dữ liệu là:",
-                                item,
-                              );
-
-                              if (item) {
-                                handleEditReward(item);
-                              } else {
-                                console.error(
-                                  "Lỗi: Không tìm thấy dữ liệu item cho dòng này!",
-                                );
-                              }
-                            }}
-                            style={{
-                              padding: "5px 10px",
-                              backgroundColor: "#f59e0b",
-                              color: "white",
-                              border: "none",
-                              borderRadius: "5px",
-                              cursor: "pointer",
-                              position: "relative", // Thêm cái này
-                              zIndex: 10, // Và cái này
-                            }}
-                          >
-                            Sửa
-                          </button>
-                          <button
-                            onClick={() => handleDeleteTicket(item)}
-                            style={{
-                              padding: "5px 10px",
-                              backgroundColor: "#ef4444",
-                              color: "white",
-                              border: "none",
-                              borderRadius: "5px",
-                              cursor: "pointer",
-                            }}
-                          >
-                            Xóa sổ
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const UserView = ({
-  handleLogout,
-  soHunMoi,
-  soHunSau,
-  handleExchangeGift,
-  loadingExchange,
-  totalRewards,
-  quizzes,
-  scores,
-  setScores,
-  selectedFiles,
-  setSelectedFiles,
-  handleSubmitScore,
-  loadingUser,
-  rewardsPenalties,
-  chartData,
-  honthuong,
-  loadingInitial,
-  handleLuckyWheelWin,
-  spinCost,
-  freeSpins,
-  isOpenInventory,
-  setIsOpenInventory,
-}) => {
-  if (loadingInitial) return <CuteLoading />;
-
-  return (
-    <div style={styles.containerUser}>
-      <button onClick={handleLogout} style={styles.btnLogout}>
-        🚪 Đăng xuất
-      </button>
-      <div style={styles.mainWrapper}>
-        {/* ==================== CỘT PHẢI HOẶC KHU VỰC TIÊU PHIẾU ==================== */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "20px",
-            flex: "1 1 350px",
-          }}
-        >
-          {/* 1. Ví Quy Đổi Quà Cố Định */}
-          <div style={styles.exchangeCard}>
-            <h2
-              style={{
-                color: "#db2777",
-                margin: "0 0 5px 0",
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-              }}
-            >
-              🏪 VÍ QUY ĐỔI PHẦN THƯỞNG 🏪
-            </h2>
-            <p
-              style={{
-                color: "#667085",
-                fontSize: "13px",
-                margin: "0 0 15px 0",
-              }}
-            >
-              Quy tắc đổi quà: 10 Phiếu = 1 Hun môi 💋 | 5 Hun môi = 1 Hun sâu
-              🔥
-            </p>
-
-            <div style={styles.exchangeGrid}>
-              <div style={styles.exchangeItem}>
-                <span style={{ fontSize: "24px" }}>🎁</span>
-                <span style={styles.exchangeValue}>{honthuong}</span>
-                <span style={styles.exchangeLabel}>Nụ hôn thường đang có</span>
-              </div>
-              <div
-                style={{
-                  ...styles.exchangeItem,
-                  borderLeft: "1px solid #fbcfe8",
-                  borderRight: "1px solid #fbcfe8",
-                }}
-              >
-                <span style={{ fontSize: "24px" }}>💋</span>
-                <span style={{ ...styles.exchangeValue, color: "#e91e63" }}>
-                  {soHunMoi}
-                </span>
-                <span style={styles.exchangeLabel}>Hun Môi Đang Có</span>
-              </div>
-              <div style={styles.exchangeItem}>
-                <span style={{ fontSize: "24px" }}>🔥</span>
-                <span style={{ ...styles.exchangeValue, color: "#9333ea" }}>
-                  {soHunSau}
-                </span>
-                <span style={styles.exchangeLabel}>Hun Sâu Đang Có</span>
-              </div>
-            </div>
-
-            <div style={styles.exchangeActions}>
-              <ButtonCute
-                onClick={() => handleExchangeGift("HUN_MOI")}
-                style={{ ...styles.btnExchange, backgroundColor: "#e91e63" }}
-                loading={loadingExchange}
-              >
-                💋 Đổi 10 Phiếu = 1 Hun Môi
-              </ButtonCute>
-
-              <ButtonCute
-                onClick={() => handleExchangeGift("HUN_SAU")}
-                style={{ ...styles.btnExchange, backgroundColor: "#7c3aed" }}
-                loading={loadingExchange}
-              >
-                🔥 Đổi 50 Phiếu = 1 Hun Sâu
-              </ButtonCute>
-            </div>
-
-            <div
-              style={{
-                textAlign: "center",
-                marginTop: "12px",
-                fontSize: "12px",
-                color: "#98a2b3",
-                fontWeight: "600",
-              }}
-            >
-              🎯 Tổng số phiếu thưởng khả dụng thực tế: {totalRewards} phiếu
-            </div>
-          </div>
-
-          {/* 2. Vòng Quay May Mắn */}
-          <div
-            style={{
-              ...styles.card,
-              padding: "20px",
-              display: "flex",
-              justifyContent: "center",
-            }}
-          >
-            <LuckyWheel
-              totalRewards={totalRewards}
-              onWin={handleLuckyWheelWin} // Truyền trúng cổng tiếp nhận kết quả
-              loading={loadingExchange}
-              spinCost={spinCost}
-              freeSpins={freeSpins}
-            />
-          </div>
-        </div>
-
-        {/* HỆ THỐNG TÚI ĐỒ ẨN/HIỆN THẦN KỲ - ĐÃ DỜI XUỐNG GÓC DƯỚI PHẢI */}
-        <div style={{ position: "fixed", bottom: "30px", right: "20px", zIndex: 1000 }}>
-
-          {/* 1. NỘI DUNG TÚI QUÀ: Bùng lên PHÍA TRÊN cái icon khi mở */}
-          {isOpenInventory && (
-            <div
-              style={{
-                marginBottom: "15px", // Đẩy khung túi quà nằm PHÍA TRÊN cái icon
-                width: "360px",
-                animation: "fadeInDown 0.3s ease-out"
-              }}
-            >
-              <GiftInventory />
-            </div>
-          )}
-
-          {/* 2. ICON TÚI QUÀ (Nằm cố định ở góc dưới cùng bên phải) */}
-          <div
-            onClick={() => setIsOpenInventory(!isOpenInventory)}
-            style={{
-              width: "60px",
-              height: "60px",
-              background: "linear-gradient(135deg, #ff758c 0%, #ff7eb3 100%)",
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "28px",
-              cursor: "pointer",
-              boxShadow: "0 8px 20px rgba(255, 117, 140, 0.4)",
-              border: "3px solid white",
-              transition: "all 0.3s ease",
-              userSelect: "none",
-              float: "right",
-              animation: !isOpenInventory ? "bounce 2s infinite" : "none"
-            }}
-            onMouseOver={(e) => e.currentTarget.style.transform = "scale(1.1) rotate(10deg)"}
-            onMouseOut={(e) => e.currentTarget.style.transform = "scale(1) rotate(0deg)"}
-          >
-            {isOpenInventory ? "❌" : "🎒"}
-          </div>
-
-          {/* Định nghĩa lại hiệu ứng chuyển động mượt mà dạt từ dưới lên */}
-          <style>{`
-    @keyframes bounce {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-8px); }
-    }
-    @keyframes fadeInDown {
-      from { opacity: 0; transform: translateY(15px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-  `}</style>
-
-        </div>
-
-        {/* ==================== CỘT TRÁI HOẶC KHU VỰC NHIỆM VỤ & THỐNG KÊ ==================== */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "20px",
-            flex: "2 1 600px",
-          }}
-        >
-          {/* 3. Phòng làm bài Kahoot */}
-          <div style={styles.cardLarge}>
-            <h1 style={styles.titleUser}>
-              🎮 Phòng Làm Bài Của Anh Người Yêu 🎮
-            </h1>
-            <p style={styles.subtitle}>Nhiệm vụ tối mật - Không làm ăn phạt</p>
-            <div style={styles.quizList}>
-              {quizzes.length === 0 ? (
-                <p style={{ textAlign: "center", color: "#888" }}>
-                  🎉 Chưa có thử thách nào hết ní ơi!
-                </p>
-              ) : (
-                quizzes.map((quiz) => (
-                  <div
-                    key={quiz.id}
-                    style={
-                      quiz.status === "COMPLETED"
-                        ? styles.quizItemDone
-                        : styles.quizItemPending
-                    }
-                  >
-                    <div style={styles.quizInfo}>
-                      <p style={styles.quizDate}>
-                        📅 Ngày giao:{" "}
-                        {new Date(quiz.created_at).toLocaleDateString("vi-VN")}
+            <div className="two-columns">
+              <section className="card stack">
+                <h3>Điều cần làm tiếp theo</h3>
+                {waiting.length ? (
+                  waiting.slice(0, 3).map((g) => (
+                    <div className="entry" key={g.id}>
+                      <strong>{g.prize_text}</strong>
+                      <p>
+                        {g.status} · {displayDate(g.scheduled_for)}
                       </p>
-                      <a
-                        href={quiz.link_kahoot}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={styles.quizLink}
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty">
+                    Chưa có quà đang chờ. Tích phiếu rồi hẹn nhau nhé!
+                  </p>
+                )}
+                <button className="secondary" onClick={() => setTab("gifts")}>
+                  Xem quà của tụi mình
+                </button>
+              </section>
+              <section className="card stack">
+                <h3>Một lời nhắn gần đây</h3>
+                {data.couple_entries.find((e) => e.kind === "mood") ? (
+                  (() => {
+                    const entry = data.couple_entries.find(
+                      (e) => e.kind === "mood",
+                    );
+                    return (
+                      <>
+                        <p className="quote">“{entry.title}”</p>
+                        <p>{entry.note}</p>
+                        <small className="muted">
+                          {
+                            data.love_members.find(
+                              (m) => m.user_id === entry.owner_id,
+                            )?.display_name
+                          }{" "}
+                          · {displayDate(entry.created_at)}
+                        </small>
+                      </>
+                    );
+                  })()
+                ) : (
+                  <p className="empty">
+                    Hôm nay bạn thấy thế nào? Kể người thương nghe nhé.
+                  </p>
+                )}
+                <button
+                  className="secondary"
+                  onClick={() => setTab("together")}
+                >
+                  Ghé góc chung
+                </button>
+              </section>
+            </div>
+          </section>
+        )}
+        {tab === "tasks" && (
+          <QuizList
+            quizzes={data.quizzes}
+            admin={admin}
+            userId={user.id}
+            run={run}
+            busy={busy}
+            notify={notify}
+          />
+        )}
+        {tab === "gifts" && (
+          <section className="stack">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">NHỮNG BẤT NGỜ NHỎ</p>
+                <h2>Quà & những cuộc hẹn</h2>
+              </div>
+              <span className="pill">{total} phiếu</span>
+            </div>
+            {!admin && (
+              <>
+                <div className="card">
+                  <h3>Đổi một chút ngọt ngào</h3>
+                  <p className="muted">
+                    Quà vào túi trước. Hai người sẽ hẹn thời gian phù hợp cùng
+                    nhau.
+                  </p>
+                  <div className="actions">
+                    {[
+                      ["HUN_MOI", 10, "Hun môi 💋"],
+                      ["HUN_SAU", 50, "Hun sâu 💕"],
+                    ].map(([kind, cost, label]) => (
+                      <button
+                        key={kind}
+                        disabled={busy || total < cost}
+                        onClick={async () => {
+                          if (
+                            !(await confirmAction(
+                              `Dùng ${cost} phiếu để đổi ${label}?`,
+                            ))
+                          )
+                            return;
+                          run(async () => {
+                            const gift = await redeem(kind);
+                            setMessage(`Đã đổi ${gift.prize}. Quà đã vào túi!`);
+                            await notify(
+                              `Có quà mới: ${gift.prize}. Mở Love Game để hẹn nhau nhé!`,
+                            );
+                          });
+                        }}
                       >
-                        🔗 Link làm bài Kahoot
-                      </a>
-                    </div>
-                    <div style={styles.quizAction}>
-                      {quiz.status === "COMPLETED" ? (
-                        <div style={styles.badgeDone}>
-                          🎯 Đã xong: {quiz.score} điểm
-                        </div>
-                      ) : (
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "8px",
-                            alignItems: "flex-end",
-                          }}
-                        >
-                          <div style={{ display: "flex", gap: "8px" }}>
-                            <input
-                              type="number"
-                              placeholder="Điểm..."
-                              onChange={(e) =>
-                                setScores({
-                                  ...scores,
-                                  [quiz.id]: e.target.value,
-                                })
-                              }
-                              style={styles.inputScore}
-                            />
-                            <ButtonCute
-                              onClick={() => handleSubmitScore(quiz.id)}
-                              style={styles.btnSubmit}
-                              loading={loadingUser}
-                            >
-                              Nộp Điểm
-                            </ButtonCute>
-                          </div>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) =>
-                              setSelectedFiles({
-                                ...selectedFiles,
-                                [quiz.id]: e.target.files[0],
-                              })
-                            }
-                            style={{ fontSize: "12px", width: "170px" }}
-                          />
-                        </div>
-                      )}
-                    </div>
+                        {label} · {cost} phiếu
+                      </button>
+                    ))}
                   </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* 4. Thống Kê Biểu Đồ & Sổ Đầu Bài */}
-          <div style={styles.cardLarge}>
-            <div
-              style={{
-                margin: "20px auto",
-                maxWidth: "500px",
-                padding: "10px",
-                backgroundColor: "#fdf2f8",
-                borderRadius: "15px",
-              }}
-            >
-              <ChartSummary data={chartData} />
-            </div>
-            <h2 style={{ color: "#1e3a8a", margin: "0 0 10px 0" }}>
-              📋 Sổ Đầu Bài Thưởng Phạt
-            </h2>
-            <p style={styles.subtitle}>Ghi chép công đức và tội lỗi nội bộ</p>
-            <div style={{ overflowX: "auto" }}>
-              <table style={styles.table}>
+                </div>
+                <LuckyWheel
+                  settings={settings}
+                  totalRewards={total}
+                  disabled={busy}
+                  redeem={redeem}
+                  onSaved={async (result) => {
+                    await refresh();
+                    await notify(
+                      `Vừa quay được: ${result.prize}. Quà đã vào túi rồi!`,
+                    );
+                  }}
+                />
+              </>
+            )}
+            <GiftInventory
+              items={data.user_inventory}
+              admin={admin}
+              busy={busy}
+              run={run}
+              notify={notify}
+            />
+          </section>
+        )}
+        {tab === "together" && (
+          <SharedSpace
+            entries={data.couple_entries}
+            members={data.love_members}
+            userId={user.id}
+            busy={busy}
+            run={run}
+          />
+        )}
+        {tab === "history" && (
+          <section className="stack">
+            <h2>Nhật ký phiếu của tụi mình</h2>
+            {admin && <TicketForm run={run} busy={busy} />}
+            <Suspense fallback={<p role="status">Đang mở biểu đồ…</p>}>
+              <ChartSummary data={chart} />
+            </Suspense>
+            <div className="card table-wrap">
+              <table>
                 <thead>
-                  <tr style={{ backgroundColor: "#f1f5f9" }}>
-                    <th style={styles.th}>Ngày chốt điểm</th>
-                    <th style={styles.th}>🎁 Điểm Thưởng tích lũy</th>
-                    <th style={styles.th}>💀 Điểm Phạt nhận về</th>
-                    <th style={styles.th}>📝 Lí Do</th>
+                  <tr>
+                    <th>Ngày</th>
+                    <th>Thưởng / Đổi</th>
+                    <th>Phạt</th>
+                    <th>Lý do</th>
+                    {admin && <th>Thao tác</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {rewardsPenalties.map((item) => (
-                    <tr key={item.id} style={styles.tr}>
-                      <td style={styles.td}>
-                        {new Date(item.date).toLocaleDateString("vi-VN")}
+                  {data.rewards_penalties.map((row) => (
+                    <tr key={row.id}>
+                      <td>{displayDate(row.date)}</td>
+                      <td>
+                        {Number(row.reward_amount) > 0 ? "+" : ""}
+                        {row.reward_amount}
                       </td>
-                      <td
-                        style={{
-                          ...styles.td,
-                          fontWeight: "700",
-                          color: item.reward_amount < 0 ? "#b45309" : "#16a34a",
-                          fontSize: "15px",
-                        }}
-                      >
-                        {item.reward_amount > 0
-                          ? `+${item.reward_amount} Phiếu`
-                          : item.reward_amount < 0
-                            ? `${item.reward_amount}`
-                            : "0"}
-                      </td>
-                      <td
-                        style={{
-                          ...styles.td,
-                          fontWeight: "700",
-                          color: "#dc2626",
-                          fontSize: "15px",
-                        }}
-                      >
-                        {item.penalty_amount > 0
-                          ? `-${item.penalty_amount} Phiếu`
+                      <td>
+                        {Number(row.penalty_amount)
+                          ? `−${row.penalty_amount}`
                           : "0"}
                       </td>
-                      <td
-                        style={{
-                          ...styles.td,
-                          color: "#64748b",
-                          fontStyle:
-                            item.reward_reason || item.penalty_reason
-                              ? "normal"
-                              : "italic",
-                        }}
-                      >
-                        {item.reward_reason ||
-                          item.penalty_reason ||
-                          "Không có lí do"}
+                      <td>
+                        {row.reward_reason ||
+                          row.penalty_reason ||
+                          "Không có ghi chú"}
                       </td>
+                      {admin && (
+                        <td>
+                          <button
+                            className="text-button"
+                            disabled={busy}
+                            onClick={async () => {
+                              if (
+                                !(await confirmAction(
+                                  "Xóa dòng này sẽ thay đổi số dư phiếu. Tiếp tục?",
+                                ))
+                              )
+                                return;
+                              run(async () => {
+                                const { error } = await supabase
+                                  .from("rewards_penalties")
+                                  .delete()
+                                  .eq("id", row.id);
+                                if (error) throw error;
+                              }, "Đã xóa dòng phiếu.");
+                            }}
+                          >
+                            Xóa
+                          </button>
+                          <button
+                            className="text-button"
+                            disabled={busy}
+                            onClick={() => editTicket(row, run)}
+                          >
+                            Sửa
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {!data.rewards_penalties.length && (
+                <p className="empty">Chưa có giao dịch nào.</p>
+              )}
             </div>
-          </div>
-        </div>
-      </div>{" "}
-      {/* Hết mainWrapper */}
+            {admin && (
+              <>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    run(async () => {
+                      const ok = await notifyPartner(
+                        `Tổng kết ngày ${displayDate(localDate())}: số dư hiện tại ${total} phiếu.`,
+                        "both",
+                      );
+                      if (!ok)
+                        throw new Error(
+                          "Telegram chưa gửi được. Dữ liệu vẫn được lưu.",
+                        );
+                    }, "Đã gửi tổng kết cho cả hai.")
+                  }
+                >
+                  Gửi tổng kết Telegram
+                </button>
+                <details className="card">
+                  <summary>Lịch sử thay đổi (50 mục gần nhất)</summary>
+                  {data.audit_logs.map((log) => (
+                    <p className="audit-entry" key={log.id}>
+                      {displayDate(log.created_at)} · {log.admin_name} ·{" "}
+                      {log.action_type}
+                      <br />
+                      <small>{log.action_details}</small>
+                    </p>
+                  ))}
+                </details>
+              </>
+            )}
+          </section>
+        )}
+        {tab === "settings" && admin && (
+          <WheelSettingsPage
+            key={JSON.stringify(settings)}
+            settings={settings}
+            run={run}
+            busy={busy}
+          />
+        )}
+        <footer>Được tạo để hai đứa có thêm những ngày vui ♡</footer>
+      </main>
     </div>
   );
-};
+}
 
-// BẢNG MÃ CSS INLINE GIAO DIỆN
-const styles = {
-  containerLogin: {
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    minHeight: "100vh",
-    backgroundColor: "#f3f4f6",
-    fontFamily: "Segoe UI, sans-serif",
-  },
-  cardLogin: {
-    backgroundColor: "white",
-    padding: "40px",
-    borderRadius: "20px",
-    boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
-    width: "100%",
-    maxWidth: "380px",
-    textAlign: "center",
-  },
-  containerAdmin: {
-    display: "flex",
-    justifyContent: "center",
-    minHeight: "100vh",
-    backgroundColor: "#ffeaf2",
-    fontFamily: "Segoe UI, sans-serif",
-    padding: "40px 20px",
-    position: "relative",
-  },
-  containerUser: {
-    display: "flex",
-    justifyContent: "center",
-    minHeight: "100vh",
-    backgroundColor: "#eff6ff",
-    fontFamily: "Segoe UI, sans-serif",
-    padding: "40px 20px",
-    position: "relative",
-  },
-  mainWrapper: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "30px",
-    width: "100%",
-    maxWidth: "750px",
-    marginTop: "20px",
-  },
-  card: {
-    backgroundColor: "#ffffff",
-    padding: "30px",
-    borderRadius: "20px",
-    boxShadow: "0 10px 25px rgba(0,0,0,0.05)",
-    textAlign: "center",
-  },
-  cardLarge: {
-    backgroundColor: "#ffffff",
-    padding: "30px",
-    borderRadius: "20px",
-    boxShadow: "0 10px 25px rgba(0,0,0,0.05)",
-  },
-  form: { display: "flex", flexDirection: "column", textAlign: "left" },
-  exchangeCard: {
-    backgroundColor: "#fff1f2",
-    padding: "20px",
-    borderRadius: "20px",
-    border: "1px solid #fecdd3",
-    boxShadow: "0 8px 20px rgba(225, 29, 72, 0.05)",
-  },
-  exchangeGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, 1fr)",
-    backgroundColor: "#ffffff",
-    borderRadius: "12px",
-    padding: "15px 0",
-    border: "1px solid #ffe4e6",
-  },
-  exchangeItem: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "4px",
-  },
-  exchangeValue: { fontSize: "22px", fontWeight: "800", color: "#334155" },
-  exchangeLabel: {
-    fontSize: "11px",
-    fontWeight: "600",
-    color: "#64748b",
-    textAlign: "center",
-  },
-  exchangeActions: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "12px",
-    marginTop: "15px",
-  },
-  btnExchange: {
-    padding: "10px 15px",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "10px",
-    fontWeight: "bold",
-    fontSize: "13px",
-    cursor: "pointer",
-    transition: "all 0.2s",
-    boxShadow: "0 4px 10px rgba(0,0,0,0.05)",
-    opacity: 1,
-  },
-  newTicketCard: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "15px",
-    padding: "25px",
-    backgroundColor: "#ffffff",
-    borderRadius: "16px",
-    border: "1px solid #ffe3ec",
-    boxShadow: "0 4px 15px rgba(233, 30, 99, 0.05)",
-    marginTop: "15px",
-  },
-  newFormGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: "15px",
-  },
-  inputWrapper: { display: "flex", flexDirection: "column", gap: "4px" },
-  newLabel: {
-    fontSize: "13px",
-    fontWeight: "700",
-    color: "#475569",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px",
-  },
-  newInput: {
-    width: "100%",
-    padding: "12px",
-    borderRadius: "10px",
-    border: "1px solid #cbd5e1",
-    fontSize: "14px",
-    fontWeight: "600",
-    color: "#334155",
-    outline: "none",
-    boxSizing: "border-box",
-    backgroundColor: "#f8fafc",
-  },
-  newBtnSubmit: {
-    width: "100%",
-    padding: "14px",
-    backgroundColor: "#e91e63",
-    color: "#ffffff",
-    border: "none",
-    borderRadius: "30px",
-    fontSize: "15px",
-    fontWeight: "bold",
-    cursor: "pointer",
-    boxShadow: "0 4px 12px rgba(233, 30, 99, 0.2)",
-    marginTop: "5px",
-  },
-  label: {
-    fontSize: "13px",
-    fontWeight: "600",
-    color: "#555",
-    marginBottom: "4px",
-  },
-  input: {
-    width: "100%",
-    padding: "10px",
-    borderRadius: "8px",
-    border: "1px solid #ccc",
-    fontSize: "14px",
-    outline: "none",
-    boxSizing: "border-box",
-  },
-  inputAdmin: {
-    padding: "12px 15px",
-    borderRadius: "10px",
-    border: "2px solid #ffccd5",
-    fontSize: "16px",
-    marginBottom: "20px",
-    outline: "none",
-  },
-  buttonLogin: {
-    padding: "12px",
-    backgroundColor: "#ff4d94",
-    color: "white",
-    border: "none",
-    borderRadius: "8px",
-    fontSize: "16px",
-    fontWeight: "bold",
-    cursor: "pointer",
-    marginTop: "10px",
-  },
-  buttonAdmin: {
-    padding: "12px",
-    backgroundColor: "#ff4d94",
-    color: "white",
-    border: "none",
-    borderRadius: "10px",
-    fontSize: "16px",
-    fontWeight: "bold",
-    cursor: "pointer",
-  },
-  btnNotify: {
-    padding: "6px 12px",
-    backgroundColor: "#059669",
-    color: "white",
-    border: "none",
-    borderRadius: "8px",
-    fontSize: "13px",
-    fontWeight: "bold",
-    cursor: "pointer",
-  },
-  btnDelete: {
-    padding: "6px 12px",
-    backgroundColor: "#ef4444",
-    color: "white",
-    border: "none",
-    borderRadius: "8px",
-    fontSize: "12px",
-    cursor: "pointer",
-    fontWeight: "600",
-  },
-  btnLogout: {
-    position: "absolute",
-    top: "20px",
-    right: "20px",
-    padding: "8px 15px",
-    backgroundColor: "#374151",
-    color: "white",
-    border: "none",
-    borderRadius: "8px",
-    fontSize: "13px",
-    cursor: "pointer",
-    fontWeight: "bold",
-    zIndex: 10,
-  },
-  message: {
-    marginTop: "20px",
-    padding: "10px",
-    backgroundColor: "#fff0f6",
-    borderRadius: "8px",
-    color: "#c41d7f",
-    fontSize: "14px",
-    fontWeight: "500",
-    textAlign: "center",
-    border: "1px solid #ffd6e7",
-  },
-  quizList: { display: "flex", flexDirection: "column", gap: "15px" },
-  quizItemPending: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "15px",
-    borderRadius: "12px",
-    border: "2px solid #3b82f6",
-    backgroundColor: "#ffffff",
-  },
-  quizItemDone: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "15px",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    backgroundColor: "#f9fafb",
-    opacity: 0.8,
-  },
-  quizInfo: { display: "flex", flexDirection: "column", gap: "5px" },
-  quizDate: { margin: 0, fontSize: "12px", color: "#666" },
-  quizLink: {
-    color: "#2563eb",
-    fontWeight: "600",
-    textDecoration: "none",
-    fontSize: "14px",
-  },
-  inputScore: {
-    width: "80px",
-    padding: "8px",
-    borderRadius: "8px",
-    border: "1px solid #bcd1f8",
-    textAlign: "center",
-  },
-  btnSubmit: {
-    padding: "8px 15px",
-    backgroundColor: "#2563eb",
-    color: "white",
-    border: "none",
-    borderRadius: "8px",
-    fontWeight: "bold",
-    cursor: "pointer",
-  },
-  badgeDone: {
-    padding: "6px 12px",
-    backgroundColor: "#10b981",
-    color: "white",
-    borderRadius: "20px",
-    fontSize: "13px",
-    fontWeight: "bold",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    textAlign: "left",
-    fontSize: "14px",
-  },
-  th: {
-    padding: "12px 10px",
-    borderBottom: "2px solid #e2e8f0",
-    color: "#475569",
-    fontWeight: "bold",
-  },
-  td: {
-    padding: "12px 10px",
-    borderBottom: "1px solid #e2e8f0",
-    color: "#334155",
-    verticalAlign: "middle",
-  },
-  tr: {},
-  title: { color: "#ff4d94", margin: "0 0 10px 0" },
-  titleUser: { color: "#2563eb", margin: "0 0 10px 0" },
-  subtitle: { color: "#666", fontSize: "14px", margin: "0 0 20px 0" },
-};
+function QuizList({ quizzes, admin, userId, run, busy, notify }) {
+  const addQuiz = (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const link = new FormData(form).get("link").trim();
+    run(async () => {
+      if (!validQuizLink(link))
+        throw new Error(
+          "Dùng đường dẫn HTTPS từ kahoot.it hoặc kahoot.com nhé.",
+        );
+      const { error } = await supabase
+        .from("quizzes")
+        .insert({ link_kahoot: link, status: "PENDING" });
+      if (error) throw error;
+      form.reset();
+      await notify(`Có nhiệm vụ Kahoot mới: ${link}`);
+    });
+  };
+  const submit = (event, quiz) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    run(async () => {
+      const score = Number(values.get("score"));
+      const file = values.get("proof");
+      if (!Number.isInteger(score) || score < 0 || score > 2147483647)
+        throw new Error("Điểm phải là số nguyên không âm.");
+      const extensions = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+      };
+      if (!extensions[file.type] || !file.size || file.size > 5 * 1024 * 1024)
+        throw new Error("Chọn ảnh JPG, PNG hoặc WebP, tối đa 5 MB.");
+      const path = `${userId}/${crypto.randomUUID()}.${extensions[file.type]}`;
+      const { error: uploadError } = await supabase.storage
+        .from("quiz-images")
+        .upload(path, file);
+      if (uploadError) throw uploadError;
+      try {
+        await rpc("love_submit_quiz", {
+          p_id: String(quiz.id),
+          p_score: score,
+          p_proof_path: path,
+        });
+      } catch (err) {
+        // Do not remove a potentially referenced proof after an ambiguous network response.
+        if (err.code === "P0001")
+          await supabase.storage.from("quiz-images").remove([path]);
+        throw err;
+      }
+      await notify(
+        `Đã hoàn thành Kahoot với ${score} điểm! Xem ảnh minh chứng trong web nhé.`,
+      );
+    });
+  };
+  return (
+    <section className="stack">
+      <h2>Nhiệm vụ nhỏ mỗi ngày 🌱</h2>
+      {admin && (
+        <form className="card actions" onSubmit={addQuiz}>
+          <label className="grow">
+            Link Kahoot
+            <input
+              name="link"
+              type="url"
+              required
+              placeholder="https://kahoot.it/…"
+            />
+          </label>
+          <button disabled={busy}>Giao nhiệm vụ</button>
+        </form>
+      )}
+      {!quizzes.length && (
+        <div className="card empty">
+          Chưa có nhiệm vụ. Hôm nay dành chút thời gian cho nhau nhé!
+        </div>
+      )}
+      {quizzes.map((quiz) => (
+        <article className="card stack" key={quiz.id}>
+          <div className="section-heading">
+            <h3>
+              {quiz.status === "COMPLETED"
+                ? "✅ Đã hoàn thành"
+                : "🎯 Thử thách Kahoot"}
+            </h3>
+            <small>{displayDate(quiz.created_at)}</small>
+          </div>
+          {validQuizLink(quiz.link_kahoot) ? (
+            <a href={quiz.link_kahoot} target="_blank" rel="noreferrer">
+              Mở bài Kahoot ↗
+            </a>
+          ) : (
+            <p className="error">
+              Link chưa hợp lệ. Người giao bài cần sửa lại.
+            </p>
+          )}
+          {quiz.status === "COMPLETED" ? (
+            <p>
+              Điểm đạt được: <strong>{quiz.score}</strong>
+            </p>
+          ) : (
+            !admin && (
+              <form className="stack" onSubmit={(event) => submit(event, quiz)}>
+                <label>
+                  Điểm của bạn
+                  <input
+                    name="score"
+                    type="number"
+                    min="0"
+                    max="2147483647"
+                    step="1"
+                    required
+                  />
+                </label>
+                <label>
+                  Ảnh minh chứng (tối đa 5 MB)
+                  <input
+                    name="proof"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    required
+                  />
+                </label>
+                <button disabled={busy}>Nộp kết quả</button>
+              </form>
+            )
+          )}
+          {quiz.proof_path && (
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  const { data, error } = await supabase.storage
+                    .from("quiz-images")
+                    .createSignedUrl(quiz.proof_path, 60);
+                  if (error) throw error;
+                  await Swal.fire({
+                    title: "Ảnh minh chứng",
+                    imageUrl: data.signedUrl,
+                    imageAlt: "Kết quả Kahoot",
+                    confirmButtonText: "Đóng",
+                  });
+                })
+              }
+            >
+              Xem ảnh minh chứng
+            </button>
+          )}
+          {admin && (
+            <div className="actions">
+              <button
+                className="text-button"
+                disabled={busy}
+                onClick={async () => {
+                  const result = await Swal.fire({
+                    title: "Sửa link Kahoot",
+                    input: "url",
+                    inputValue: quiz.link_kahoot,
+                    showCancelButton: true,
+                    inputValidator: (value) =>
+                      validQuizLink(value)
+                        ? undefined
+                        : "Nhập link HTTPS của Kahoot.",
+                  });
+                  if (result.isConfirmed)
+                    run(async () => {
+                      const { error } = await supabase
+                        .from("quizzes")
+                        .update({ link_kahoot: result.value })
+                        .eq("id", quiz.id);
+                      if (error) throw error;
+                    });
+                }}
+              >
+                Sửa link
+              </button>
+              <button
+                className="text-button danger"
+                disabled={busy}
+                onClick={async () => {
+                  if (await confirmAction("Xóa nhiệm vụ này?"))
+                    run(async () => {
+                      const { error } = await supabase
+                        .from("quizzes")
+                        .delete()
+                        .eq("id", quiz.id);
+                      if (error) throw error;
+                    });
+                }}
+              >
+                Xóa nhiệm vụ
+              </button>
+            </div>
+          )}
+        </article>
+      ))}
+    </section>
+  );
+}
 
-export default App;
+function TicketForm({ run, busy }) {
+  return (
+    <form
+      className="card stack"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const values = new FormData(form);
+        run(async () => {
+          const reward = Number(values.get("reward"));
+          const penalty = Number(values.get("penalty"));
+          if (
+            ![reward, penalty].every(
+              (n) => Number.isInteger(n) && n >= 0 && n <= 2147483647,
+            ) ||
+            !(reward || penalty)
+          )
+            throw new Error(
+              "Nhập số phiếu nguyên không âm, có ít nhất một phiếu.",
+            );
+          const reason = values.get("reason").trim();
+          const { error } = await supabase
+            .from("rewards_penalties")
+            .insert({
+              date: values.get("date"),
+              reward_amount: reward,
+              penalty_amount: penalty,
+              reward_reason: reward ? reason : null,
+              penalty_reason: penalty ? reason : null,
+            });
+          if (error) throw error;
+          form.reset();
+        }, "Đã ghi phiếu vào nhật ký.");
+      }}
+    >
+      <h3>Ghi nhận phiếu</h3>
+      <div className="form-grid">
+        <label>
+          Ngày
+          <input type="date" name="date" defaultValue={localDate()} required />
+        </label>
+        <label>
+          Phiếu thưởng
+          <input
+            type="number"
+            name="reward"
+            defaultValue="0"
+            min="0"
+            step="1"
+            required
+          />
+        </label>
+        <label>
+          Phiếu phạt
+          <input
+            type="number"
+            name="penalty"
+            defaultValue="0"
+            min="0"
+            step="1"
+            required
+          />
+        </label>
+      </div>
+      <label>
+        Lý do
+        <input name="reason" maxLength={500} required />
+      </label>
+      <button disabled={busy}>Lưu phiếu</button>
+    </form>
+  );
+}
+
+async function editTicket(row, run) {
+  // DOM assignment avoids interpolating user-supplied reasons into HTML.
+  const result = await Swal.fire({
+    title: "Sửa dòng phiếu",
+    html: '<label>Phiếu thưởng / đổi<input id="edit-reward" type="number" class="swal2-input"></label><label>Phiếu phạt<input id="edit-penalty" type="number" min="0" class="swal2-input"></label><label>Lý do<input id="edit-reason" maxlength="500" class="swal2-input"></label>',
+    showCancelButton: true,
+    didOpen: () => {
+      document.getElementById("edit-reward").value = row.reward_amount;
+      document.getElementById("edit-penalty").value = row.penalty_amount;
+      document.getElementById("edit-reason").value =
+        row.reward_reason || row.penalty_reason || "";
+    },
+    preConfirm: () => {
+      const reward = Number(document.getElementById("edit-reward").value);
+      const penalty = Number(document.getElementById("edit-penalty").value);
+      const reason = document.getElementById("edit-reason").value.trim();
+      if (
+        ![reward, penalty].every(
+          (n) => Number.isInteger(n) && Math.abs(n) <= 2147483647,
+        ) ||
+        penalty < 0 ||
+        !reason
+      ) {
+        Swal.showValidationMessage("Điền số phiếu nguyên hợp lệ và lý do.");
+        return false;
+      }
+      return {
+        reward_amount: reward,
+        penalty_amount: penalty,
+        reward_reason: reward ? reason : null,
+        penalty_reason: penalty ? reason : null,
+      };
+    },
+  });
+  if (result.isConfirmed)
+    run(async () => {
+      const { error } = await supabase
+        .from("rewards_penalties")
+        .update(result.value)
+        .eq("id", row.id);
+      if (error) throw error;
+    }, "Đã cập nhật dòng phiếu.");
+}

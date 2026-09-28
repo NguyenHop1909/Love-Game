@@ -1,4 +1,3 @@
-import React from 'react';
 import './Loading.css'; // Đảm bảo đã import CSS
 
 const ButtonCute = ({ loading, children, className, style, ...props }) => {

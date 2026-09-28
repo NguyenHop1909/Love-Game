@@ -1,4 +1,3 @@
-import React from 'react';
 import './Loading.css'; // Nhớ import file CSS ở trên nha ní
 
 const CuteLoading = () => {

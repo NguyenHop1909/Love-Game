@@ -1,324 +1,154 @@
-import React, { useState, useEffect, useRef } from "react";
-import Swal from "sweetalert2";
-import { supabase } from "./supabaseClient";
+import { useEffect, useRef, useState } from "react";
+import { nextRotation } from "./lib/domain";
 
-// Khởi tạo đối tượng Audio từ thư mục public
-const audioQuay = new Audio("/xosoMB.wav");
-
-export default function LuckyWheel({ totalRewards, onWin, loading, freeSpins }) {
+export default function LuckyWheel({
+  settings,
+  totalRewards,
+  disabled,
+  redeem,
+  onSaved,
+}) {
   const [rotation, setRotation] = useState(0);
-  const [isSpinning, setIsSpinning] = useState(false);
-  const [prizes, setPrizes] = useState([]);
-  const [spinCost, setSpinCost] = useState(2);
-  const [localFreeSpins, setLocalFreeSpins] = useState(0); // Quản lý số lượt quay miễn phí cục bộ
-  // Dùng ref để lưu chỉ số trúng thưởng, tránh lỗi closure trong setTimeout
-  const currentPrizeIndexRef = useRef(0);
-  const isFreeSpinRef = useRef(false); // Khai báo ref lưu loại lượt quay
-
-
-  // 1. Tải cấu hình vòng quay và lắng nghe Realtime thay đổi từ Supabase
+  const [spinning, setSpinning] = useState(false);
+  const [snapshot, setSnapshot] = useState(null);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+  const [sound, setSound] = useState(false);
+  const lock = useRef(false);
+  const timer = useRef(null);
+  const audio = useRef(null);
+  const mounted = useRef(true);
   useEffect(() => {
-    const fetchSettings = async () => {
-      const { data } = await supabase
-        .from("wheel_settings")
-        .select("*")
-        .eq("id", 1)
-        .single();
-      if (data) {
-        setPrizes(data.prizes || []);
-        setSpinCost(data.spin_cost || 0);
-        setLocalFreeSpins(data.free_spins || 0);
-      }
-    };
-    fetchSettings();
-
-    const channel = supabase
-      .channel("wheel_settings_channel")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "wheel_settings",
-          filter: "id=eq.1",
-        },
-        (payload) => {
-          const newPrizes =
-            typeof payload.new.prizes === "string"
-              ? JSON.parse(payload.new.prizes)
-              : payload.new.prizes;
-          setPrizes(newPrizes || []);
-          setSpinCost(payload.new.spin_cost || 0);
-          setLocalFreeSpins(payload.new.free_spins || 0);
-        }
-      )
-      .subscribe();
-
+    mounted.current = true;
     return () => {
-      supabase.removeChannel(channel);
-      // Dọn dẹp tắt nhạc hoàn toàn nếu component bị unmount đột ngột
-      audioQuay.pause();
-      audioQuay.currentTime = 0;
+      mounted.current = false;
+      clearTimeout(timer.current);
+      audio.current?.pause();
     };
   }, []);
-
-  // 2. Hàm xử lý logic quay bánh xe
-  const handleSpin = (isFreeSpin) => { // Sử dụng nhất quán biến isFreeSpin ở đây
-    if (isSpinning || loading || prizes.length === 0) return;
-
-    // 1. Lưu loại lượt quay vào ref để tí nữa gửi lên App.jsx cho đúng
-    isFreeSpinRef.current = isFreeSpin;
-
-    // 2. Tách biệt logic kiểm tra điều kiện Quay Free và Quay Thường
-    if (isFreeSpin) {
-      // Nếu bấm nút FREE: Kiểm tra xem số lượt quay free nội bộ còn không
-      if (localFreeSpins <= 0) {
-        Swal.fire("Hết lượt free rồi ní!", "Dùng phiếu thưởng để quay tiếp nhen!", "warning");
-        return;
+  const prizes = snapshot || settings?.prizes || [];
+  const spin = async (free) => {
+    if (lock.current || disabled) return;
+    lock.current = true;
+    setSpinning(true);
+    setError("");
+    setResult(null);
+    try {
+      const saved = await redeem(free ? "FREE_SPIN" : "SPIN");
+      if (!mounted.current) return;
+      setSnapshot(saved.prizes);
+      const reduce = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      if (sound && !reduce) {
+        audio.current = new Audio("/xosoMB.wav");
+        audio.current.play().catch(() => {});
       }
-    } else {
-      // Nếu bấm nút THƯỜNG: Kiểm tra số dư phiếu thưởng thực tế của user
-      if (totalRewards < spinCost) {
-        Swal.fire({
-          title: "Nghèo quá ní ơi! 💀",
-          text: `Vòng quay nhân phẩm tốn ${spinCost} phiếu/lượt. Ní hiện tại mới có ${totalRewards} phiếu hà!`,
-          icon: "error",
-          confirmButtonColor: "#ff85c0",
-          background: "#fff0f6"
-        });
-        return;
+      setRotation((previous) =>
+        nextRotation(previous, saved.index, saved.prizes.length),
+      );
+      timer.current = setTimeout(
+        () => {
+          audio.current?.pause();
+          if (mounted.current) {
+            setResult(saved.prize);
+            setSpinning(false);
+            lock.current = false;
+          }
+        },
+        reduce ? 30 : 4200,
+      );
+      // The result is already committed on the server, even if the page closes mid-animation.
+      await onSaved(saved);
+    } catch (err) {
+      if (mounted.current) {
+        setError(
+          err.message || "Chưa quay được. Thử lại để kiểm tra giao dịch.",
+        );
+        setSpinning(false);
       }
+      lock.current = false;
     }
-
-    setIsSpinning(true);
-
-    // Kích hoạt nhạc nền vòng quay (Reset và bật lặp lại liên tục)
-    audioQuay.currentTime = 0;
-    audioQuay.loop = true;
-    audioQuay.play().catch((err) => console.log("Trình duyệt chặn phát nhạc tự động:", err));
-
-    const prizeCount = prizes.length;
-    const randomPrizeIndex = Math.floor(Math.random() * prizeCount);
-    currentPrizeIndexRef.current = randomPrizeIndex; // Lưu vào ref
-
-    const degreesPerPrize = 360 / prizeCount;
-
-    // Tính toán tọa độ góc xoay chuẩn xác (Quay ít nhất 10 vòng + góc target)
-    const targetAngle = 3600 + (360 - randomPrizeIndex * degreesPerPrize - degreesPerPrize / 2);
-    setRotation((prev) => prev + targetAngle);
-
-    // Chuẩn chỉnh đồng hồ bấm giờ đúng 13 giây khớp hoàn toàn với CSS transition của ní
-    setTimeout(() => {
-      // TẮT NHẠC NGAY LẬP TỨC KHI VÒNG QUAY KHỰNG LẠI
-      audioQuay.pause();
-      audioQuay.currentTime = 0;
-
-      setIsSpinning(false);
-
-      // Lấy kết quả phần thưởng từ ref ra và gửi lên App.jsx xử lý
-      const finalPrizeIndex = currentPrizeIndexRef.current;
-      if (onWin && prizes[finalPrizeIndex]) {
-        // Gửi sang file cha: Tên phần thưởng VÀ trạng thái có phải free không
-        onWin(prizes[finalPrizeIndex].text, isFreeSpinRef.current);
-      }
-    }, 13000);
   };
-
+  const cost = settings?.spin_cost ?? 2;
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: "25px",
-        padding: "10px",
-        userSelect: "none",
-      }}
-    >
-      {/* Khai báo hiệu ứng nhấp nháy chuyển động cho nút Free */}
-      <style>{`
-        @keyframes pulseFreeBtn {
-          0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-          70% { transform: scale(1.04); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-          100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-        }
-      `}</style>
-
-      {/* KHUNG VIỀN NGOÀI NỔI KHỐI 3D */}
-      <div
-        style={{
-          position: "relative",
-          width: "320px",
-          height: "320px",
-          padding: "12px",
-          borderRadius: "50%",
-          background: "linear-gradient(145deg, #f43f5e, #be123c)",
-          boxShadow:
-            "inset 2px 2px 5px rgba(255,255,255,0.4), inset -2px -2px 5px rgba(0,0,0,0.4), 0 12px 28px rgba(0,0,0,0.25)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        {/* MŨI TÊN ĐỊNH VỊ ĐỈNH 12 GIỜ CHUẨN XÁC */}
+    <section className="card wheel-card stack">
+      <div className="section-heading">
+        <h3>Vòng quay bất ngờ 🎡</h3>
+        <label className="sound-toggle">
+          <input
+            type="checkbox"
+            checked={sound}
+            onChange={(event) => setSound(event.target.checked)}
+          />{" "}
+          Bật nhạc
+        </label>
+      </div>
+      <p className="muted">
+        Quà được lưu ngay khi quay. Đóng trang giữa chừng vẫn tìm được trong
+        túi.
+      </p>
+      <div className="wheel-frame">
+        <span className="wheel-pointer" aria-hidden="true">
+          ▼
+        </span>
         <div
+          className="wheel"
           style={{
-            position: "absolute",
-            top: "-15px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: "0",
-            height: "0",
-            borderLeft: "18px solid transparent",
-            borderRight: "18px solid transparent",
-            borderTop: "32px solid #f43f5e",
-            filter: "drop-shadow(0px 4px 5px rgba(0,0,0,0.3))",
-            zIndex: 30,
-          }}
-        />
-
-        {/* THÂN BÁNH XE XOAY MƯỢT 10 GIÂY CHUẨN CUBIC-BEZIER */}
-        <div
-          style={{
-            width: "100%",
-            height: "100%",
-            borderRadius: "50%",
-            position: "relative",
-            overflow: "hidden",
-            transition: 'transform 13s cubic-bezier(0.1, 0.8, 0.1, 1)',
             transform: `rotate(${rotation}deg)`,
-            background:
-              prizes.length > 0
-                ? `conic-gradient(${prizes.map((p, i) => `${p.color} ${i * (360 / prizes.length)}deg ${(i + 1) * (360 / prizes.length)}deg`).join(", ")})`
-                : "#f43f5e",
+            background: prizes.length
+              ? `conic-gradient(${prizes.map((p, i) => `${/^#[0-9a-f]{6}$/i.test(p.color) ? p.color : "#fecdd3"} ${(i * 360) / prizes.length}deg ${((i + 1) * 360) / prizes.length}deg`).join(",")})`
+              : "#fecdd3",
           }}
         >
-          {/* Vẽ các nan chia ô màu */}
-          {prizes.map((_, i) => (
+          {prizes.map((prize, i) => (
             <div
-              key={`line-${i}`}
+              className="wheel-segment"
+              key={i}
               style={{
-                position: "absolute",
-                width: "2px",
-                height: "50%",
-                top: 0,
-                left: "50%",
-                backgroundColor: "rgba(255,255,255,0.4)",
-                transformOrigin: "bottom center",
-                transform: `translateX(-50%) rotate(${i * (360 / prizes.length)}deg)`,
-                zIndex: 2,
-              }}
-            />
-          ))}
-
-          {/* Căn chỉnh chữ hiển thị lọt lòng gọn gàng trong ô */}
-          {prizes.map((p, i) => (
-            <div
-              key={`text-${i}`}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "100%",
-                transform: `rotate(${i * (360 / prizes.length) + 360 / prizes.length / 2}deg)`,
-                display: "flex",
-                justifyContent: "center",
-                zIndex: 3,
+                transform: `rotate(${((i + 0.5) * 360) / prizes.length}deg)`,
               }}
             >
-              <div
-                style={{
-                  paddingTop: "24px",
-                  width: "70px",
-                  textAlign: "center",
-                  fontSize: "11px",
-                  fontWeight: "bold",
-                  color: "#374151",
-                  textShadow: "0 0 2px rgba(255,255,255,0.8)",
-                  lineHeight: "1.3",
-                  wordWrap: "break-word",
-                  whiteSpace: "normal"
-                }}
-              >
-                {p.text}
-              </div>
+              <span>{prize.text}</span>
             </div>
           ))}
         </div>
-
-        {/* TÂM TRỤC TRÒN TRÁI TIM CHÂN THỰC */}
-        <div
-          style={{
-            position: "absolute",
-            width: "50px",
-            height: "50px",
-            borderRadius: "50%",
-            background: "radial-gradient(circle, #ffffff 0%, #cbd5e1 70%, #94a3b8 100%)",
-            boxShadow: "0 4px 10px rgba(0,0,0,0.3), inset 1px 1px 2px rgba(255,255,255,0.8)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 25,
-            border: "3px solid #fff",
-          }}
-        >
-          <span style={{ fontSize: "16px" }}>❤️</span>
-        </div>
+        <span className="wheel-heart" aria-hidden="true">
+          ♡
+        </span>
       </div>
-
-      {/* KHU VỰC CHỨA 2 NÚT BẤM REALTIME TRỰC QUAN */}
-      <div style={{ display: "flex", gap: "15px", flexWrap: "wrap", justifyContent: "center" }}>
-
-        {/* NÚT 1: QUAY MIỄN PHÍ (Sử dụng biến localFreeSpins tự load từ database) */}
-        {localFreeSpins > 0 && (
+      <div className="actions centered">
+        <button
+          disabled={
+            disabled ||
+            spinning ||
+            !prizes.length ||
+            (cost > 0 && totalRewards < cost)
+          }
+          onClick={() => spin(false)}
+        >
+          {spinning ? "Đang quay…" : `Quay · ${cost} phiếu`}
+        </button>
+        {settings?.free_spins > 0 && (
           <button
-            onClick={() => handleSpin(true)}
-            disabled={isSpinning || prizes.length === 0}
-            style={{
-              padding: "12px 25px",
-              backgroundColor: isSpinning ? "#cbd5e1" : "#10b981", // Màu xanh lục tươi mát
-              color: "white",
-              border: "none",
-              borderRadius: "25px",
-              fontWeight: "bold",
-              fontSize: "14px",
-              cursor: isSpinning ? "not-allowed" : "pointer",
-              animation: isSpinning ? "none" : "pulseFreeBtn 1.5s infinite", // Hiệu ứng nhấp nháy mời gọi
-              boxShadow: isSpinning ? "none" : "0 6px 16px rgba(16,185,129,0.4), inset 0 -4px 0 rgba(0,0,0,0.15)",
-              transition: "all 0.1s ease",
-              transform: isSpinning && isFreeSpinRef.current ? "translateY(3px)" : "none"
-            }}
+            className="secondary"
+            disabled={disabled || spinning || !prizes.length}
+            onClick={() => spin(true)}
           >
-            {isSpinning && isFreeSpinRef.current
-              ? "🎲 Đang dùng lượt Free..."
-              : `✨ Quay Miễn Phí (Còn ${localFreeSpins} lượt)`}
+            Quay miễn phí ({settings.free_spins})
           </button>
         )}
-
-        {/* NÚT 2: QUAY TỐN PHÍEU (Giữ nguyên giao diện gốc của ní) */}
-        <button
-          onClick={() => handleSpin(false)}
-          disabled={isSpinning || prizes.length === 0}
-          style={{
-            padding: "12px 25px",
-            backgroundColor: isSpinning ? "#cbd5e1" : "#f43f5e",
-            color: "white",
-            border: "none",
-            borderRadius: "25px",
-            fontWeight: "bold",
-            fontSize: "14px",
-            cursor: isSpinning ? "not-allowed" : "pointer",
-            boxShadow: isSpinning ? "none" : "0 6px 16px rgba(244,63,94,0.4), inset 0 -4px 0 rgba(0,0,0,0.15)",
-            transition: "all 0.1s ease",
-            transform: isSpinning && !isFreeSpinRef.current ? "translateY(3px)" : "none"
-          }}
-        >
-          {isSpinning && !isFreeSpinRef.current
-            ? "🎲 Đang thử vận may..."
-            : `🎡 Quay Nhân Phẩm (${spinCost} phiếu)`}
-        </button>
       </div>
-    </div>
+      {result && (
+        <p role="status" className="notice">
+          🎉 Bạn nhận được: <strong>{result}</strong>. Quà đã vào túi!
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }

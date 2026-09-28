@@ -1,36 +1,92 @@
-import React, { useState } from 'react';
-import Swal from 'sweetalert2';
-import { supabase } from './supabaseClient';
+import { supabase } from "./supabaseClient";
 
-export default function WheelSettingsPage({ currentPrizes, currentCost }) {
-    const [prizes, setPrizes] = useState(currentPrizes.map(p => p.text).join('\n'));
-    const [cost, setCost] = useState(currentCost);
-
-    const handleSave = async () => {
-        const lines = prizes.split('\n').filter(l => l.trim() !== "");
-        const colors = ['#ff9aa2', '#ffb7b2', '#ffdac1', '#e2f0cb', '#b5ead7', '#c7ceea'];
-        const formatted = lines.map((text, i) => ({ text, color: colors[i % colors.length] }));
-
-        const { error } = await supabase.from('wheel_settings').update({ prizes: formatted, spin_cost: cost }).eq('id', 1);
-        if (error) Swal.fire('Lỗi!', error.message, 'error');
-        else Swal.fire('Xong!', 'Cấu hình đã được lưu', 'success');
-    };
-
-    return (
-        <div style={{ maxWidth: '600px', margin: '20px auto', padding: '20px', background: '#fff', borderRadius: '15px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ borderBottom: '2px solid #f43f5e', paddingBottom: '10px' }}>⚙️ Cấu hình Vòng quay</h2>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <label>Chi phí mỗi lượt (Số phiếu):</label>
-                <input type="number" value={cost} onChange={e => setCost(e.target.value)} style={{ padding: '10px' }} />
-
-                <label>Danh sách phần thưởng (Mỗi dòng 1 giải):</label>
-                <textarea rows="10" value={prizes} onChange={e => setPrizes(e.target.value)} style={{ padding: '10px', width: '100%' }} />
-
-                <button onClick={handleSave} style={{ padding: '15px', background: '#f43f5e', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-                    Lưu cấu hình
-                </button>
-            </div>
-        </div>
-    );
+export default function WheelSettingsPage({ settings, run, busy }) {
+  const save = (event) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    run(async () => {
+      const names = values
+        .get("prizes")
+        .split("\n")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const cost = Number(values.get("cost"));
+      const free = Number(values.get("free"));
+      if (
+        !names.length ||
+        names.length > 20 ||
+        names.some((name) => name.length > 100)
+      )
+        throw new Error("Điền 1–20 phần quà, mỗi tên tối đa 100 ký tự.");
+      if (
+        ![cost, free].every(
+          (n) => Number.isInteger(n) && n >= 0 && n <= 2147483647,
+        )
+      )
+        throw new Error("Chi phí và lượt miễn phí phải là số nguyên không âm.");
+      const colors = [
+        "#fda4af",
+        "#c4b5fd",
+        "#99f6e4",
+        "#fde68a",
+        "#fdba74",
+        "#bae6fd",
+      ];
+      const { error } = await supabase
+        .from("wheel_settings")
+        .update({
+          spin_cost: cost,
+          free_spins: free,
+          prizes: names.map((text, i) => ({
+            text,
+            color: colors[i % colors.length],
+          })),
+        })
+        .eq("id", 1)
+        .select("id")
+        .single();
+      if (error) throw error;
+    }, "Đã lưu vòng quay.");
+  };
+  return (
+    <form className="card stack" onSubmit={save}>
+      <h2>Cài đặt những bất ngờ ⚙️</h2>
+      <label>
+        Chi phí mỗi lượt (0 = miễn phí)
+        <input
+          name="cost"
+          type="number"
+          min="0"
+          step="1"
+          required
+          defaultValue={settings?.spin_cost ?? 2}
+        />
+      </label>
+      <label>
+        Số lượt miễn phí còn lại
+        <input
+          name="free"
+          type="number"
+          min="0"
+          step="1"
+          required
+          defaultValue={settings?.free_spins ?? 0}
+        />
+      </label>
+      <label>
+        Phần thưởng (mỗi dòng một quà)
+        <textarea
+          name="prizes"
+          rows={8}
+          required
+          defaultValue={(settings?.prizes || []).map((p) => p.text).join("\n")}
+        />
+      </label>
+      <p className="muted">
+        Mỗi phần quà có cơ hội được chọn như nhau. Cấu hình mới áp dụng từ lượt
+        quay tiếp theo.
+      </p>
+      <button disabled={busy}>Lưu vòng quay</button>
+    </form>
+  );
 }

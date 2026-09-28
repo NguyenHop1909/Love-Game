@@ -1,0 +1,5 @@
+project_id = "love-game"
+
+[functions.notify-partner]
+# The handler verifies the access token with auth.getUser(), including new signing keys.
+verify_jwt = false
