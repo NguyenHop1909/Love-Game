@@ -847,8 +847,8 @@ footer {
 .story-viewer { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(29, 18, 27, .94); padding: 3rem 4rem 6rem; }
 .story-viewer > img { max-width: min(92vw, 900px); max-height: 78vh; object-fit: contain; border-radius: 1rem; box-shadow: 0 1rem 4rem rgba(0,0,0,.35); }
 .story-close, .story-nav { position: absolute; border: 0; color: white; background: rgba(255,255,255,.16); border-radius: 999px; cursor: pointer; }
-.story-close { top: 1rem; right: 1rem; width: 2.5rem; height: 2.5rem; font-size: 2rem; }
-.story-nav { top: 50%; transform: translateY(-50%); width: 3rem; height: 3rem; font-size: 2.5rem; line-height: 1; }
+.story-close { top: 1rem; right: 1rem; width: 2.5rem; height: 2.5rem; padding: 0; display: grid; place-items: center; font-size: 2rem; line-height: 1; }
+.story-nav { top: 50%; transform: translateY(-50%); width: 3rem; height: 3rem; padding: 0; display: grid; place-items: center; font-size: 2.5rem; line-height: 1; }
 .story-prev { left: 1rem; } .story-next { right: 1rem; }
 .story-caption { position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%); width: min(90vw, 700px); color: white; display: flex; gap: .7rem; align-items: baseline; flex-wrap: wrap; }
 .story-caption span, .story-caption p { color: #f5dce5; } .story-caption p { width: 100%; margin: 0; }
