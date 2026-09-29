@@ -5,6 +5,33 @@ import { supabase } from "./supabaseClient";
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 
+const prepareImage = (file) =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+    image.onload = () => {
+      const scale = Math.min(1, 1920 / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => {
+          URL.revokeObjectURL(url);
+          if (!blob) return reject(new Error("Không thể nén ảnh này."));
+          resolve(blob);
+        },
+        "image/webp",
+        0.82,
+      );
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Không thể đọc ảnh này."));
+    };
+    image.src = url;
+  });
+
 export default function MemoryJar({ memories, members, userId, busy, run }) {
   const [month, setMonth] = useState(localDate().slice(0, 7));
   const [imageUrls, setImageUrls] = useState({});
@@ -55,8 +82,9 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
       const uploaded = [];
       try {
         for (const file of files) {
-          const imagePath = `${userId}/${crypto.randomUUID()}.${extensions[file.type]}`;
-          const { error: uploadError } = await supabase.storage.from("couple-memories").upload(imagePath, file);
+          const optimized = await prepareImage(file);
+          const imagePath = `${userId}/${crypto.randomUUID()}.webp`;
+          const { error: uploadError } = await supabase.storage.from("couple-memories").upload(imagePath, optimized, { contentType: "image/webp" });
           if (uploadError) throw uploadError;
           uploaded.push(imagePath);
           const { error } = await supabase.from("couple_memories").insert({
