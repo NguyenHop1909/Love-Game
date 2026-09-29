@@ -298,6 +298,7 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
             <strong>{story.memory.title}</strong><span>{displayDate(story.memory.memory_date)} · {ownerName(story.memory.owner_id)}</span>
             {story.memory.note && <p>{story.memory.note}</p>}
             <a className="story-download" href={imageUrls[story.memory.items[story.index].image_path]} download={`${story.memory.title || "ky-niem"}.webp`} target="_blank" rel="noreferrer">↓ Lưu ảnh về máy</a>
+            {story.memory.owner_id === userId && <button className="story-edit" onClick={() => { setStory(null); editMemory(story.memory); }}>✎ Sửa thông tin</button>}
           </div>
         </div>
       )}
