@@ -48,24 +48,28 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
     const form = event.currentTarget;
     const values = new FormData(form);
     run(async () => {
-      const file = values.get("image");
+      const files = [...(values.getAll("image") || [])];
       const extensions = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
-      if (!extensions[file.type] || !file.size || file.size > MAX_IMAGE_SIZE)
+      if (!files.length || files.some((file) => !extensions[file.type] || !file.size || file.size > MAX_IMAGE_SIZE))
         throw new Error("Chọn ảnh JPG, PNG hoặc WebP, tối đa 20 MB.");
-      const imagePath = `${userId}/${crypto.randomUUID()}.${extensions[file.type]}`;
-      const { error: uploadError } = await supabase.storage
-        .from("couple-memories")
-        .upload(imagePath, file);
-      if (uploadError) throw uploadError;
-      const { error } = await supabase.from("couple_memories").insert({
-        owner_id: userId,
-        memory_date: values.get("memory_date"),
-        title: values.get("title").trim(),
-        note: values.get("note").trim(),
-        image_path: imagePath,
-      });
-      if (error) {
-        await supabase.storage.from("couple-memories").remove([imagePath]);
+      const uploaded = [];
+      try {
+        for (const file of files) {
+          const imagePath = `${userId}/${crypto.randomUUID()}.${extensions[file.type]}`;
+          const { error: uploadError } = await supabase.storage.from("couple-memories").upload(imagePath, file);
+          if (uploadError) throw uploadError;
+          uploaded.push(imagePath);
+          const { error } = await supabase.from("couple_memories").insert({
+            owner_id: userId,
+            memory_date: values.get("memory_date"),
+            title: values.get("title").trim(),
+            note: values.get("note").trim(),
+            image_path: imagePath,
+          });
+          if (error) throw error;
+        }
+      } catch (error) {
+        await supabase.storage.from("couple-memories").remove(uploaded);
         throw error;
       }
       form.reset();
@@ -133,7 +137,7 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
           </label>
           <label>
             Ảnh kỷ niệm
-            <input name="image" type="file" accept="image/jpeg,image/png,image/webp" required />
+            <input name="image" type="file" accept="image/jpeg,image/png,image/webp" multiple required />
           </label>
         </div>
         <label>
