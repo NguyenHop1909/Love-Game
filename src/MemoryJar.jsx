@@ -150,11 +150,12 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
   const editMemory = async (memory) => {
     const result = await Swal.fire({
       title: "Sửa kỷ niệm",
-      html: '<input id="memory-title" class="swal2-input" placeholder="Tên kỷ niệm"><textarea id="memory-note" class="swal2-textarea" placeholder="Lời nhắn"></textarea><input id="memory-date" class="swal2-input" type="date">',
+      html: '<input id="memory-title" class="swal2-input" placeholder="Tên kỷ niệm"><textarea id="memory-note" class="swal2-textarea" placeholder="Lời nhắn"></textarea><input id="memory-date" class="swal2-input" type="date"><input id="memory-album" class="swal2-input" maxlength="40" placeholder="Album / chủ đề">',
       didOpen: () => {
         document.getElementById("memory-title").value = memory.title;
         document.getElementById("memory-note").value = memory.note || "";
         document.getElementById("memory-date").value = memory.memory_date;
+        document.getElementById("memory-album").value = memory.album || "Khác";
       },
       showCancelButton: true,
       confirmButtonText: "Lưu thay đổi",
@@ -163,6 +164,7 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
         title: document.getElementById("memory-title").value.trim(),
         note: document.getElementById("memory-note").value.trim(),
         memory_date: document.getElementById("memory-date").value,
+        album: document.getElementById("memory-album").value.trim() || "Khác",
       }),
     });
     if (!result.isConfirmed) return;
