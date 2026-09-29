@@ -11,6 +11,7 @@ import { isConfigured, supabase, rpc, notifyPartner } from "./supabaseClient";
 import {
   balanceOf,
   displayDate,
+  formatAuditLog,
   localDate,
   memberRole,
   validQuizLink,
@@ -161,8 +162,31 @@ function Login({ initialError }) {
 }
 
 function LoveSpace({ user }) {
-  const { data, error, connected, refresh } = useLoveData(user.id);
+  const { data: loadedData, error, connected, refresh } = useLoveData(user.id);
   const [tab, setTab] = useState("today");
+  const membership = loadedData?.love_members.find(
+    (member) => member.user_id === user.id,
+  );
+  const scorebookToScore = membership?.can_scorebook_id || "anh";
+  const ownScorebook = scorebookToScore === "em" ? "anh" : "em";
+  const scorebook = ["tasks", "history", "settings"].includes(tab)
+    ? scorebookToScore
+    : ownScorebook;
+  const data = loadedData && {
+    ...loadedData,
+    quizzes: loadedData.quizzes.filter(
+      (row) => (row.scorebook_id || "anh") === scorebook,
+    ),
+    rewards_penalties: loadedData.rewards_penalties.filter(
+      (row) => (row.scorebook_id || "anh") === scorebook,
+    ),
+    user_inventory: loadedData.user_inventory.filter(
+      (row) => (row.scorebook_id || "anh") === scorebook,
+    ),
+    audit_logs: loadedData.audit_logs.filter(
+      (row) => (row.scorebook_id || "anh") === scorebook,
+    ),
+  };
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [actionError, setActionError] = useState("");
@@ -177,10 +201,23 @@ function LoveSpace({ user }) {
       setActionError("");
       try {
         await action();
-        if (success) setMessage(success);
+        if (success) setMessage((current) => current || success);
         await refresh();
       } catch (err) {
-        setActionError(err.message || "Chưa lưu được. Thử lại nhé.");
+        const raw = String(err?.message || err || "");
+        const friendly = /row-level security|permission denied|not authorized/i.test(raw)
+          ? "Bạn chỉ được chấm điểm trong sổ của mình nha 💗"
+          : raw || "Chưa lưu được. Bạn thử lại nhé.";
+        setActionError(friendly);
+        await Swal.fire({
+          toast: true,
+          position: "top-end",
+          icon: "info",
+          title: friendly,
+          showConfirmButton: false,
+          timer: 2800,
+          timerProgressBar: true,
+        });
       } finally {
         lock.current = false;
         setBusy(false);
@@ -190,17 +227,21 @@ function LoveSpace({ user }) {
   );
   const notify = async (text) => {
     try {
-      if (!(await notifyPartner(text)))
+      if (!(await notifyPartner(text))) {
         setMessage(
           "Dữ liệu đã lưu. Telegram chưa gửi được; người kia vẫn xem được trong web.",
         );
+        return false;
+      }
+      return true;
     } catch {
       setMessage("Dữ liệu đã lưu. Telegram tạm thời chưa kết nối.");
+      return false;
     }
   };
   const redeem = async (kind) => {
     // Persist the request ID before sending: retry after an interrupted response cannot double-charge.
-    const key = `love-pending:${user.id}:${kind}`;
+    const key = `love-pending:${user.id}:${scorebook}:${kind}`;
     let id = pendingRequests.current.get(kind) || localStorage.getItem(key);
     if (!id) {
       id = crypto.randomUUID();
@@ -211,6 +252,7 @@ function LoveSpace({ user }) {
       const result = await rpc("love_redeem", {
         p_request_id: id,
         p_kind: kind,
+        p_scorebook: scorebook,
       });
       pendingRequests.current.delete(kind);
       localStorage.removeItem(key);
@@ -253,9 +295,22 @@ function LoveSpace({ user }) {
         </section>
       </main>
     );
-  const admin = role === "admin";
+  const displayName =
+    user.email === "emyeu@love-game.local"
+      ? "Anh Yêu"
+      : user.email === "anhyeu@love-game.local"
+        ? "Công chúa"
+        : me.display_name;
+  const admin = Boolean(me.can_scorebook_id);
   const total = balanceOf(data.rewards_penalties);
-  const settings = data.wheel_settings.find((s) => s.id === 1);
+  const ownLedger = loadedData.rewards_penalties.filter(
+    (row) => (row.scorebook_id || "anh") === ownScorebook,
+  );
+  const ownTotal = balanceOf(ownLedger);
+  const scoreTargetName = scorebookToScore === "em" ? "Công chúa" : "Anh Yêu";
+  const settings = data.wheel_settings.find(
+    (s) => s.id === (scorebook === "anh" ? 1 : 2),
+  );
   const pending = data.quizzes.filter((q) => q.status !== "COMPLETED");
   const waiting = data.user_inventory.filter((g) =>
     ["Chờ hẹn", "Đã hẹn"].includes(g.status),
@@ -265,9 +320,9 @@ function LoveSpace({ user }) {
     ["tasks", "🌱", "Nhiệm vụ"],
     ["gifts", "🎁", "Quà"],
     ["together", "💌", "Góc chung"],
-    ["history", "📖", "Nhật ký"],
+    ["history", "📖", "Chấm điểm"],
   ];
-  if (admin) tabs.push(["settings", "⚙️", "Cài đặt"]);
+  if (admin) tabs.push(["settings", "⚙️", "Cài đặt vòng quay"]);
   const chart = [...data.rewards_penalties]
     .reverse()
     .slice(-30)
@@ -298,7 +353,7 @@ function LoveSpace({ user }) {
           <div>
             <p className="eyebrow">MỘT NGÀY NỮA, CÓ NHAU</p>
             <h1>
-              Chào {me.display_name} <span>🌷</span>
+              Chào {displayName} <span>🌷</span>
             </h1>
             <p className="muted">
               {displayDate(localDate())} · Những điều nhỏ làm nên ngày đáng nhớ.
@@ -436,6 +491,7 @@ function LoveSpace({ user }) {
             run={run}
             busy={busy}
             notify={notify}
+            scorebook={scorebook}
           />
         )}
         {tab === "gifts" && (
@@ -447,8 +503,7 @@ function LoveSpace({ user }) {
               </div>
               <span className="pill">{total} phiếu</span>
             </div>
-            {!admin && (
-              <>
+            <>
                 <div className="card">
                   <h3>Đổi một chút ngọt ngào</h3>
                   <p className="muted">
@@ -496,8 +551,7 @@ function LoveSpace({ user }) {
                     );
                   }}
                 />
-              </>
-            )}
+            </>
             <GiftInventory
               items={data.user_inventory}
               admin={admin}
@@ -514,12 +568,21 @@ function LoveSpace({ user }) {
             userId={user.id}
             busy={busy}
             run={run}
+            notify={notify}
           />
         )}
         {tab === "history" && (
           <section className="stack">
-            <h2>Nhật ký phiếu của tụi mình</h2>
-            {admin && <TicketForm run={run} busy={busy} />}
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">SỔ ĐIỂM CỦA HAI ĐỨA</p>
+                <h2>Điểm mình chấm {scoreTargetName}</h2>
+              </div>
+              <span className="pill">{total} phiếu</span>
+            </div>
+            {admin && (
+              <TicketForm run={run} busy={busy} scorebook={scorebook} />
+            )}
             <Suspense fallback={<p role="status">Đang mở biểu đồ…</p>}>
               <ChartSummary data={chart} />
             </Suspense>
@@ -592,6 +655,49 @@ function LoveSpace({ user }) {
                 <p className="empty">Chưa có giao dịch nào.</p>
               )}
             </div>
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">CHỈ XEM</p>
+                <h2>Điểm của mình</h2>
+              </div>
+              <span className="pill">{ownTotal} phiếu</span>
+            </div>
+            <div className="card table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ngày</th>
+                    <th>Thưởng / Đổi</th>
+                    <th>Phạt</th>
+                    <th>Lý do</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ownLedger.map((row) => (
+                    <tr key={row.id}>
+                      <td>{displayDate(row.date)}</td>
+                      <td>
+                        {Number(row.reward_amount) > 0 ? "+" : ""}
+                        {row.reward_amount}
+                      </td>
+                      <td>
+                        {Number(row.penalty_amount)
+                          ? `−${row.penalty_amount}`
+                          : "0"}
+                      </td>
+                      <td>
+                        {row.reward_reason ||
+                          row.penalty_reason ||
+                          "Không có ghi chú"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!ownLedger.length && (
+                <p className="empty">Bạn chưa có giao dịch điểm nào.</p>
+              )}
+            </div>
             {admin && (
               <>
                 <button
@@ -616,10 +722,9 @@ function LoveSpace({ user }) {
                   <summary>Lịch sử thay đổi (50 mục gần nhất)</summary>
                   {data.audit_logs.map((log) => (
                     <p className="audit-entry" key={log.id}>
-                      {displayDate(log.created_at)} · {log.admin_name} ·{" "}
-                      {log.action_type}
+                      <strong>{displayDate(log.created_at)}</strong> · {log.admin_name}
                       <br />
-                      <small>{log.action_details}</small>
+                      <small>{formatAuditLog(log)}</small>
                     </p>
                   ))}
                 </details>
@@ -641,7 +746,7 @@ function LoveSpace({ user }) {
   );
 }
 
-function QuizList({ quizzes, admin, userId, run, busy, notify }) {
+function QuizList({ quizzes, admin, userId, run, busy, notify, scorebook }) {
   const addQuiz = (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -653,7 +758,11 @@ function QuizList({ quizzes, admin, userId, run, busy, notify }) {
         );
       const { error } = await supabase
         .from("quizzes")
-        .insert({ link_kahoot: link, status: "PENDING" });
+        .insert({
+          link_kahoot: link,
+          status: "PENDING",
+          scorebook_id: scorebook,
+        });
       if (error) throw error;
       form.reset();
       await notify(`Có nhiệm vụ Kahoot mới: ${link}`);
@@ -842,7 +951,7 @@ function QuizList({ quizzes, admin, userId, run, busy, notify }) {
   );
 }
 
-function TicketForm({ run, busy }) {
+function TicketForm({ run, busy, scorebook }) {
   return (
     <form
       className="card stack"
@@ -866,6 +975,7 @@ function TicketForm({ run, busy }) {
           const { error } = await supabase
             .from("rewards_penalties")
             .insert({
+              scorebook_id: scorebook,
               date: values.get("date"),
               reward_amount: reward,
               penalty_amount: penalty,

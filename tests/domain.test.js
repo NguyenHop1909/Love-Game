@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   balanceOf,
+  formatAuditLog,
   localDate,
   memberRole,
   nextRotation,
@@ -43,4 +44,27 @@ test("unknown roles never receive a privileged screen", () => {
   assert.equal(memberRole({ role: "owner" }), null);
   assert.equal(memberRole(null), null);
   assert.equal(memberRole({ role: "admin" }), "admin");
+});
+
+test("audit JSON is presented as a readable Vietnamese sentence", () => {
+  const action_details = JSON.stringify({
+    table: "rewards_penalties",
+    before: { reward_amount: 100, penalty_amount: 0, reward_reason: "test" },
+    after: { reward_amount: 10000, penalty_amount: 0, reward_reason: "test" },
+  });
+  assert.equal(
+    formatAuditLog({ action_type: "UPDATE", action_details }),
+    "Đã chỉnh sửa điểm: 100 phiếu thưởng · Lý do: test → 10.000 phiếu thưởng · Lý do: test",
+  );
+  assert.equal(
+    formatAuditLog({ action_type: "DELETE", action_details }),
+    "Đã xóa 100 phiếu thưởng · Lý do: test",
+  );
+});
+
+test("legacy human-readable audit text remains unchanged", () => {
+  assert.equal(
+    formatAuditLog({ action_type: "DELETE", action_details: "Em yêu đã xóa 6 phiếu thưởng" }),
+    "Em yêu đã xóa 6 phiếu thưởng",
+  );
 });

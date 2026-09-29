@@ -11,19 +11,14 @@ export default function WheelSettingsPage({ settings, run, busy }) {
         .map((value) => value.trim())
         .filter(Boolean);
       const cost = Number(values.get("cost"));
-      const free = Number(values.get("free"));
       if (
         !names.length ||
         names.length > 20 ||
         names.some((name) => name.length > 100)
       )
         throw new Error("Điền 1–20 phần quà, mỗi tên tối đa 100 ký tự.");
-      if (
-        ![cost, free].every(
-          (n) => Number.isInteger(n) && n >= 0 && n <= 2147483647,
-        )
-      )
-        throw new Error("Chi phí và lượt miễn phí phải là số nguyên không âm.");
+      if (!Number.isInteger(cost) || cost < 0 || cost > 2147483647)
+        throw new Error("Chi phí phải là số nguyên không âm.");
       const colors = [
         "#fda4af",
         "#c4b5fd",
@@ -36,13 +31,12 @@ export default function WheelSettingsPage({ settings, run, busy }) {
         .from("wheel_settings")
         .update({
           spin_cost: cost,
-          free_spins: free,
           prizes: names.map((text, i) => ({
             text,
             color: colors[i % colors.length],
           })),
         })
-        .eq("id", 1)
+        .eq("id", settings?.id ?? 1)
         .select("id")
         .single();
       if (error) throw error;
@@ -63,17 +57,6 @@ export default function WheelSettingsPage({ settings, run, busy }) {
         />
       </label>
       <label>
-        Số lượt miễn phí còn lại
-        <input
-          name="free"
-          type="number"
-          min="0"
-          step="1"
-          required
-          defaultValue={settings?.free_spins ?? 0}
-        />
-      </label>
-      <label>
         Phần thưởng (mỗi dòng một quà)
         <textarea
           name="prizes"
@@ -83,8 +66,8 @@ export default function WheelSettingsPage({ settings, run, busy }) {
         />
       </label>
       <p className="muted">
-        Mỗi phần quà có cơ hội được chọn như nhau. Cấu hình mới áp dụng từ lượt
-        quay tiếp theo.
+        Mỗi phần quà có cơ hội được chọn như nhau. Người nhận có một lượt miễn
+        phí mỗi ngày, không cộng dồn. Cấu hình mới áp dụng từ lượt quay tiếp theo.
       </p>
       <button disabled={busy}>Lưu vòng quay</button>
     </form>

@@ -73,7 +73,12 @@ export function useLoveData(userId) {
         reload,
       ),
     );
-    channel.subscribe((status) => setConnected(status === "SUBSCRIBED"));
+    channel.subscribe((status) => {
+      const subscribed = status === "SUBSCRIBED";
+      setConnected(subscribed);
+      // Close the small gap between the initial fetch and realtime subscription.
+      if (subscribed) reload();
+    });
     const visible = () => {
       if (document.visibilityState === "visible") reload();
     };

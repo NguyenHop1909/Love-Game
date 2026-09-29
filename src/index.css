@@ -170,6 +170,37 @@ small {
   border-radius: 18px;
   margin-bottom: 28px;
 }
+
+.scorebook-switch {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  margin: 1rem 0;
+}
+.scorebook-switch button {
+  border: 1px solid var(--line, #ead7dc);
+  background: #fff;
+  color: inherit;
+  border-radius: 999px;
+  padding: .5rem .85rem;
+  cursor: pointer;
+}
+.scorebook-switch button.active {
+  background: var(--rose, #be4968);
+  color: #fff;
+  border-color: transparent;
+}
+
+.compact-form {
+  margin-top: 0.75rem;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
 .tabs button {
   flex: 1;
   display: flex;

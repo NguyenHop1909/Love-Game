@@ -1,12 +1,24 @@
 import { useState } from "react";
+import Swal from "sweetalert2";
 import { supabase, rpc } from "./supabaseClient";
 import { displayDate, localDate } from "./lib/domain";
 
-export default function SharedSpace({ entries, members, userId, run, busy }) {
+export default function SharedSpace({
+  entries,
+  members,
+  userId,
+  run,
+  busy,
+  notify,
+}) {
   const [kind, setKind] = useState("mood");
   const [pick, setPick] = useState(null);
+  const [editingMood, setEditingMood] = useState(null);
   const name = (id) =>
     members.find((m) => m.user_id === id)?.display_name || "Người thương";
+  const partnerName =
+    members.find((member) => member.user_id !== userId)?.display_name ||
+    "người ấy";
   const options = entries.filter(
     (e) =>
       e.kind === "date" &&
@@ -28,7 +40,46 @@ export default function SharedSpace({ entries, members, userId, run, busy }) {
         });
       if (error) throw error;
       form.reset();
+      await notify(
+        `${name(userId)} vừa chia sẻ ${kind === "mood" ? "tâm trạng" : kind === "date" ? "một ý tưởng hẹn hò" : "một nhiệm vụ chung"}: ${values.get("title").trim()}`,
+      );
     }, "Đã chia sẻ với người thương.");
+  };
+  const saveMood = (event, mood) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    const title = values.get("title").trim();
+    const note = values.get("note").trim();
+    run(async () => {
+      await rpc("love_entry_edit", {
+        p_id: mood.id,
+        p_title: title,
+        p_note: note,
+      });
+      setEditingMood(null);
+      await notify(`${name(userId)} vừa cập nhật tâm trạng: ${title}`);
+    }, "Đã sửa và báo cho người thương.");
+  };
+  const deleteMood = async (mood) => {
+    const result = await Swal.fire({
+      title: "Xóa tâm trạng này?",
+      text: "Nội dung sẽ biến mất khỏi Góc chung.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Xóa",
+      cancelButtonText: "Giữ lại",
+      confirmButtonColor: "#be4968",
+    });
+    if (!result.isConfirmed) return;
+    run(async () => {
+      const { error } = await supabase
+        .from("couple_entries")
+        .delete()
+        .eq("id", mood.id)
+        .eq("owner_id", userId);
+      if (error) throw error;
+      setEditingMood(null);
+    }, "Đã xóa tâm trạng.");
   };
   return (
     <section className="stack">
@@ -104,8 +155,96 @@ export default function SharedSpace({ entries, members, userId, run, busy }) {
           return (
             <article key={member.user_id} className="entry">
               <strong>{member.display_name}</strong>
-              <p>{mood?.title || "Chưa chia sẻ tâm trạng hôm nay."}</p>
-              {mood?.note && <p className="muted">{mood.note}</p>}
+              {mood && editingMood?.id === mood.id ? (
+                <form className="stack compact-form" onSubmit={(e) => saveMood(e, mood)}>
+                  <label>
+                    Tâm trạng
+                    <input
+                      name="title"
+                      required
+                      maxLength={180}
+                      defaultValue={mood.title}
+                    />
+                  </label>
+                  <label>
+                    Lời nhắn
+                    <textarea
+                      name="note"
+                      maxLength={1000}
+                      rows={2}
+                      defaultValue={mood.note}
+                    />
+                  </label>
+                  <div className="button-row">
+                    <button disabled={busy}>Lưu thay đổi</button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => setEditingMood(null)}
+                    >
+                      Hủy
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <p>{mood?.title || "Chưa chia sẻ tâm trạng hôm nay."}</p>
+                  {mood?.note && <p className="muted">{mood.note}</p>}
+                  {mood?.owner_id === userId && (
+                    <div className="button-row">
+                      <button
+                        className="secondary"
+                        disabled={busy}
+                        onClick={() =>
+                          run(
+                            async () => {
+                              const sent = await notify(
+                                `${name(userId)} muốn gửi bạn tâm trạng hôm nay: ${mood.title}${mood.note ? ` — ${mood.note}` : ""}`,
+                              );
+                              if (!sent)
+                                throw new Error(
+                                  "Chưa gửi được qua Telegram. Hãy kiểm tra bot và chat ID trong Supabase.",
+                                );
+                              await Swal.fire({
+                                toast: true,
+                                position: "top-end",
+                                icon: "success",
+                                title: `Đã gửi qua Telegram cho ${partnerName} 💌`,
+                                showConfirmButton: false,
+                                timer: 3200,
+                                timerProgressBar: true,
+                              });
+                            },
+                            `Đã gửi qua Telegram cho ${partnerName} 💌`,
+                          )
+                        }
+                      >
+                        Gửi cho {partnerName} qua Telegram 💌
+                      </button>
+                      <button
+                        className="text-button"
+                        disabled={busy}
+                        onClick={() => setEditingMood(mood)}
+                      >
+                        Sửa
+                      </button>
+                      <button
+                        className="text-button danger"
+                        disabled={busy}
+                        onClick={() => deleteMood(mood)}
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  )}
+                  {mood?.owner_id === userId && (
+                    <small className="muted">
+                      Bot Telegram sẽ gửi tâm trạng này đến tài khoản của {partnerName}.
+                    </small>
+                  )}
+                </>
+              )}
             </article>
           );
         })}

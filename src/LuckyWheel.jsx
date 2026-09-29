@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { nextRotation } from "./lib/domain";
+import { localDate, nextRotation } from "./lib/domain";
 
 export default function LuckyWheel({
   settings,
@@ -71,6 +71,7 @@ export default function LuckyWheel({
     }
   };
   const cost = settings?.spin_cost ?? 2;
+  const freeSpinAvailable = settings?.last_free_spin_date !== localDate();
   return (
     <section className="card wheel-card stack">
       <div className="section-heading">
@@ -129,14 +130,17 @@ export default function LuckyWheel({
         >
           {spinning ? "Đang quay…" : `Quay · ${cost} phiếu`}
         </button>
-        {settings?.free_spins > 0 && (
+        {freeSpinAvailable && (
           <button
             className="secondary"
             disabled={disabled || spinning || !prizes.length}
             onClick={() => spin(true)}
           >
-            Quay miễn phí ({settings.free_spins})
+            Lượt miễn phí hôm nay
           </button>
+        )}
+        {!freeSpinAvailable && (
+          <span className="muted">Đã dùng lượt miễn phí hôm nay</span>
         )}
       </div>
       {result && (

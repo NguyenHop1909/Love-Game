@@ -49,3 +49,47 @@ export function displayDate(value) {
 export function memberRole(member) {
   return ["admin", "user"].includes(member?.role) ? member.role : null;
 }
+
+const auditActions = {
+  INSERT: "Đã thêm",
+  UPDATE: "Đã chỉnh sửa",
+  DELETE: "Đã xóa",
+};
+
+function ticketSummary(row) {
+  if (!row) return "một dòng điểm";
+  const reward = Number(row.reward_amount || 0);
+  const penalty = Number(row.penalty_amount || 0);
+  const reason = row.reward_reason || row.penalty_reason;
+  const parts = [];
+  if (reward) parts.push(`${reward.toLocaleString("vi-VN")} phiếu thưởng`);
+  if (penalty) parts.push(`${penalty.toLocaleString("vi-VN")} phiếu phạt`);
+  if (!parts.length) parts.push("0 phiếu");
+  return `${parts.join(" và ")}${reason ? ` · Lý do: ${reason}` : ""}`;
+}
+
+export function formatAuditLog(log) {
+  const action = auditActions[log?.action_type] || log?.action_type || "Thay đổi";
+  try {
+    const details = JSON.parse(log.action_details);
+    const before = details.before;
+    const after = details.after;
+    if (details.table === "rewards_penalties") {
+      if (log.action_type === "INSERT") return `${action} ${ticketSummary(after)}`;
+      if (log.action_type === "DELETE") return `${action} ${ticketSummary(before)}`;
+      return `${action} điểm: ${ticketSummary(before)} → ${ticketSummary(after)}`;
+    }
+    if (details.table === "quizzes") {
+      const row = after || before;
+      return `${action} nhiệm vụ${row?.link_kahoot ? ` · ${row.link_kahoot}` : ""}`;
+    }
+    if (details.table === "user_inventory") {
+      const row = after || before;
+      return `${action} quà${row?.prize_text ? ` · ${row.prize_text}` : ""}`;
+    }
+    if (details.table === "wheel_settings") return `${action} cấu hình vòng quay`;
+    return `${action} dữ liệu`;
+  } catch {
+    return log?.action_details || action;
+  }
+}
