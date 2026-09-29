@@ -22,6 +22,7 @@ import { useLoveData } from "./lib/useLoveData";
 import LuckyWheel from "./LuckyWheel";
 import GiftInventory from "./GiftInventory";
 import SharedSpace from "./SharedSpace";
+import MemoryJar from "./MemoryJar";
 import WheelSettingsPage from "./WheelSettingsPage";
 const ChartSummary = lazy(() => import("./ChartSummary"));
 
@@ -353,6 +354,7 @@ function LoveSpace({ user }) {
     ["tasks", "🌱", "Nhiệm vụ"],
     ["gifts", "🎁", "Quà"],
     ["together", "💌", "Góc chung"],
+    ["memories", "📸", "Kỷ niệm"],
     ["history", "📖", "Chấm điểm"],
   ];
   if (admin) tabs.push(["settings", "⚙️", "Cài đặt vòng quay"]);
@@ -605,6 +607,15 @@ function LoveSpace({ user }) {
             busy={busy}
             run={run}
             notify={notify}
+          />
+        )}
+        {tab === "memories" && (
+          <MemoryJar
+            memories={data.couple_memories}
+            members={data.love_members}
+            userId={user.id}
+            busy={busy}
+            run={run}
           />
         )}
         {tab === "history" && (

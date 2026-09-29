@@ -68,6 +68,7 @@ async function mockApp(
       },
     ],
     couple_entries: [],
+    couple_memories: [],
     audit_logs: [],
   };
   const calls = [];

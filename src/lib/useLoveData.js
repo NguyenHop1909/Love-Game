@@ -7,6 +7,7 @@ const tables = [
   "user_inventory",
   "wheel_settings",
   "couple_entries",
+  "couple_memories",
   "love_members",
   "audit_logs",
 ];
