@@ -159,6 +159,11 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
         const preset = ALBUM_PRESETS.includes(memory.album) ? memory.album : "custom";
         document.getElementById("memory-album").value = preset;
         document.getElementById("memory-custom-album").value = preset === "custom" ? (memory.album || "") : "";
+        const albumSelect = document.getElementById("memory-album");
+        const customInput = document.getElementById("memory-custom-album");
+        const syncCustom = () => { customInput.style.display = albumSelect.value === "custom" ? "block" : "none"; };
+        albumSelect.addEventListener("change", syncCustom);
+        syncCustom();
       },
       showCancelButton: true,
       confirmButtonText: "Lưu thay đổi",

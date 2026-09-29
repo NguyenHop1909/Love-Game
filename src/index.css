@@ -126,6 +126,10 @@ input[type="file"] {
 :root[data-theme="dark"] textarea { background: #271f27; color: #f8eaf0; border-color: #584251; }
 :root[data-theme="dark"] .tabs { background: #342a34; }
 :root[data-theme="dark"] .muted { color: #cbb5c2; }
+.swal2-popup .swal2-select,
+.swal2-popup .swal2-input,
+.swal2-popup .swal2-textarea { width: min(90%, 320px) !important; margin: .45rem auto !important; border-radius: 12px !important; box-sizing: border-box; }
+.swal2-popup .swal2-select { padding: .75rem !important; min-height: 46px; }
 small {
   font-size: 0.8rem;
 }
