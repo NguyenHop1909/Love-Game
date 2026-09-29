@@ -13,6 +13,8 @@ export default function SharedSpace({
 }) {
   const [kind, setKind] = useState("mood");
   const [pick, setPick] = useState(null);
+  const [spinning, setSpinning] = useState(false);
+  const [wheelRotation, setWheelRotation] = useState(0);
   const [editingMood, setEditingMood] = useState(null);
   const name = (id) =>
     members.find((m) => m.user_id === id)?.display_name || "Người thương";
@@ -25,6 +27,18 @@ export default function SharedSpace({
       members.length === 2 &&
       members.every((m) => e.liked_by.includes(m.user_id)),
   );
+  const wheelColors = ["#f3a6b9", "#f7c98b", "#a9d8c5", "#b9c7ef", "#e7b7d8"];
+  const wheelBackground = options.length
+    ? `conic-gradient(${options.map((_, index) => `${wheelColors[index % wheelColors.length]} ${(index / options.length) * 100}% ${((index + 1) / options.length) * 100}%`).join(", ")})`
+    : "#f8edef";
+  const spinWheel = () => {
+    if (!options.length || spinning) return;
+    const index = Math.floor(Math.random() * options.length);
+    setSpinning(true);
+    setPick(options[index]);
+    setWheelRotation((current) => current + 1440 + (360 - (index + 0.5) * (360 / options.length)));
+    window.setTimeout(() => setSpinning(false), 1250);
+  };
   const add = (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -265,6 +279,20 @@ export default function SharedSpace({
         <p className="muted">
           Chỉ chọn ngẫu nhiên những ý tưởng cả hai đã thả tim.
         </p>
+        <div className="date-wheel-card">
+          <div className="date-wheel-wrap">
+            <span className="date-wheel-pointer" aria-hidden="true">▼</span>
+            <div className={`date-wheel ${spinning ? "is-spinning" : ""}`} style={{ background: wheelBackground, transform: `rotate(${wheelRotation}deg)` }} aria-label="Vòng quay hẹn hò">
+              <span className="date-wheel-center">♥</span>
+            </div>
+          </div>
+          <div className="date-wheel-controls">
+            <button className="primary" disabled={!options.length || spinning} onClick={spinWheel}>
+              {spinning ? "Đang quay…" : "Quay ngay 🎡"}
+            </button>
+            {!options.length && <p className="empty">Cần cả hai cùng thích ít nhất một ý tưởng để bắt đầu quay.</p>}
+          </div>
+        </div>
         {pick && options.some((e) => e.id === pick.id) && (
           <p role="status" className="notice">
             Hẹn nhau nhé: <strong>{pick.title}</strong> ·{" "}

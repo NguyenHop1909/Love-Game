@@ -20,6 +20,7 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
     let active = true;
     const paths = [...new Set(monthly.map((memory) => memory.image_path).filter(Boolean))];
     if (!paths.length) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setImageUrls({});
       return () => {
         active = false;
