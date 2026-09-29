@@ -42,6 +42,16 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
         .sort((a, b) => a.memory_date.localeCompare(b.memory_date)),
     [memories, month],
   );
+  const groupedMonthly = useMemo(() => {
+    const groups = new Map();
+    monthly.forEach((memory) => {
+      const key = `${memory.memory_date}|${memory.title}|${memory.note || ""}|${memory.owner_id}`;
+      const group = groups.get(key) || { ...memory, items: [] };
+      group.items.push(memory);
+      groups.set(key, group);
+    });
+    return [...groups.values()];
+  }, [monthly]);
 
   useEffect(() => {
     let active = true;
@@ -219,13 +229,13 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
 
       {monthly.length ? (
         <div className="memory-grid">
-          {monthly.map((memory) => (
+          {groupedMonthly.map((memory) => (
             <article className="memory-card" key={memory.id}>
-              {imageUrls[memory.image_path] ? (
-                <img src={imageUrls[memory.image_path]} alt={memory.title} loading="lazy" />
-              ) : (
-                <div className="memory-placeholder">Đang mở ảnh…</div>
-              )}
+              <div className="memory-image-grid">
+                {memory.items.map((item) => imageUrls[item.image_path] ? (
+                  <img key={item.id} src={imageUrls[item.image_path]} alt={memory.title} loading="lazy" />
+                ) : <div className="memory-placeholder" key={item.id}>Đang mở ảnh…</div>)}
+              </div>
               <div className="memory-copy">
                 <small>{displayDate(memory.memory_date)} · {ownerName(memory.owner_id)}</small>
                 <h3>{memory.title}</h3>

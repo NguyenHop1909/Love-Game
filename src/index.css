@@ -813,3 +813,15 @@ footer {
   .date-wheel-card { flex-direction: column; gap: 1rem; }
   .date-wheel-controls { width: 100%; min-width: 0; text-align: center; }
 }
+.memory-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.35rem;
+}
+
+.memory-image-grid img,
+.memory-image-grid .memory-placeholder {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
