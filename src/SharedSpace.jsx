@@ -54,9 +54,11 @@ export default function SharedSpace({
         });
       if (error) throw error;
       form.reset();
-      await notify(
-        `${name(userId)} vừa chia sẻ ${kind === "mood" ? "tâm trạng" : kind === "date" ? "một ý tưởng hẹn hò" : "một nhiệm vụ chung"}: ${values.get("title").trim()}`,
-      );
+      if (kind !== "date") {
+        await notify(
+          `${name(userId)} vừa chia sẻ ${kind === "mood" ? "tâm trạng" : "một nhiệm vụ chung"}: ${values.get("title").trim()}`,
+        );
+      }
     }, "Đã chia sẻ với người thương.");
   };
   const saveMood = (event, mood) => {

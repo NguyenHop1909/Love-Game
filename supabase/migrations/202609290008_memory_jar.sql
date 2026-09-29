@@ -6,9 +6,14 @@ create table if not exists public.couple_memories (
   memory_date date not null default current_date,
   title text not null check (length(title) between 1 and 120),
   note text not null default '' check (length(note) <= 1000),
+  album text not null default 'Khác' check (length(album) between 1 and 40),
+  deleted_at timestamptz,
   image_path text not null check (length(image_path) between 1 and 500),
   created_at timestamptz not null default now()
 );
+
+alter table public.couple_memories add column if not exists album text not null default 'Khác';
+alter table public.couple_memories add column if not exists deleted_at timestamptz;
 
 alter table public.couple_memories enable row level security;
 grant select, insert, update, delete on public.couple_memories to authenticated;

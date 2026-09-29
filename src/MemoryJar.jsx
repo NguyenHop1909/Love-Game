@@ -34,24 +34,28 @@ const prepareImage = (file) =>
 
 export default function MemoryJar({ memories, members, userId, busy, run }) {
   const [month, setMonth] = useState(localDate().slice(0, 7));
+  const [album, setAlbum] = useState("all");
+  const [showTrash, setShowTrash] = useState(false);
   const [imageUrls, setImageUrls] = useState({});
   const monthly = useMemo(
     () =>
       memories
-        .filter((memory) => memory.memory_date?.startsWith(month))
+        .filter((memory) => memory.memory_date?.startsWith(month) && (showTrash ? memory.deleted_at : !memory.deleted_at))
         .sort((a, b) => a.memory_date.localeCompare(b.memory_date)),
-    [memories, month],
+    [memories, month, showTrash],
   );
+  const albums = [...new Set(memories.map((memory) => memory.album || "Khác"))];
+  const visibleMonthly = monthly.filter((memory) => album === "all" || (memory.album || "Khác") === album);
   const groupedMonthly = useMemo(() => {
     const groups = new Map();
-    monthly.forEach((memory) => {
+    visibleMonthly.forEach((memory) => {
       const key = `${memory.memory_date}|${memory.title}|${memory.note || ""}|${memory.owner_id}`;
       const group = groups.get(key) || { ...memory, items: [] };
       group.items.push(memory);
       groups.set(key, group);
     });
     return [...groups.values()];
-  }, [monthly]);
+  }, [visibleMonthly]);
 
   useEffect(() => {
     let active = true;
@@ -100,7 +104,8 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
           const { error } = await supabase.from("couple_memories").insert({
             owner_id: userId,
             memory_date: values.get("memory_date"),
-            title: values.get("title").trim(),
+        title: values.get("title").trim(),
+        album: values.get("album")?.trim() || "Khác",
             note: values.get("note").trim(),
             image_path: imagePath,
           });
@@ -128,15 +133,11 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
     run(async () => {
       const { error } = await supabase
         .from("couple_memories")
-        .delete()
+        .update({ deleted_at: new Date().toISOString() })
         .eq("id", memory.id)
         .eq("owner_id", userId);
       if (error) throw error;
-      const { error: storageError } = await supabase.storage
-        .from("couple-memories")
-        .remove([memory.image_path]);
-      if (storageError) throw storageError;
-    }, "Đã xóa kỷ niệm.");
+    }, "Đã chuyển kỷ niệm vào thùng rác.");
   };
 
   const editMemory = async (memory) => {
@@ -207,6 +208,10 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
             <input name="title" maxLength={120} required placeholder="Buổi hẹn thật vui…" />
           </label>
           <label>
+            Album / chủ đề
+            <input name="album" maxLength={40} placeholder="Du lịch, món ăn…" />
+          </label>
+          <label>
             Ảnh kỷ niệm
             <input name="image" type="file" accept="image/jpeg,image/png,image/webp" multiple required />
           </label>
@@ -218,16 +223,24 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
         <button disabled={busy}>Cất vào hũ 💗</button>
       </form>
 
+      <div className="button-row">
+        <select value={album} onChange={(event) => setAlbum(event.target.value)} aria-label="Lọc album">
+          <option value="all">Tất cả album</option>
+          {albums.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <button className="secondary" onClick={() => setShowTrash((value) => !value)}>{showTrash ? "← Album đang dùng" : "🗑️ Thùng rác"}</button>
+      </div>
+
       <div className="memory-recap card">
         <p className="eyebrow">THÁNG NÀY CỦA TỤI MÌNH</p>
         <h3>{monthLabel}</h3>
         <p>
-          Hai đứa đã cất giữ <strong>{monthly.length}</strong> kỷ niệm
-          {monthly.length ? " trong tháng này." : ". Hãy thêm khoảnh khắc đầu tiên nhé!"}
+          Hai đứa đã cất giữ <strong>{visibleMonthly.length}</strong> kỷ niệm
+          {visibleMonthly.length ? " trong tháng này." : ". Hãy thêm khoảnh khắc đầu tiên nhé!"}
         </p>
       </div>
 
-      {monthly.length ? (
+      {visibleMonthly.length ? (
         <div className="memory-grid">
           {groupedMonthly.map((memory) => (
             <article className="memory-card" key={memory.id}>
@@ -242,8 +255,10 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
                 {memory.note && <p>{memory.note}</p>}
                 {memory.owner_id === userId && (
                   <div className="button-row">
-                    <button className="text-button" disabled={busy} onClick={() => editMemory(memory)}>Sửa</button>
-                    <button className="text-button danger" disabled={busy} onClick={() => removeMemory(memory)}>Xóa kỷ niệm</button>
+                    {!showTrash && <button className="text-button" disabled={busy} onClick={() => editMemory(memory)}>Sửa</button>}
+                    {showTrash ? (
+                      <button className="text-button" disabled={busy} onClick={() => run(() => supabase.from("couple_memories").update({ deleted_at: null }).eq("id", memory.id).eq("owner_id", userId), "Đã khôi phục kỷ niệm.")}>Khôi phục</button>
+                    ) : <button className="text-button danger" disabled={busy} onClick={() => removeMemory(memory)}>Xóa</button>}
                   </div>
                 )}
               </div>
