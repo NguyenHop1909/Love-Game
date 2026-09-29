@@ -167,6 +167,11 @@ function Login({ initialError }) {
 function LoveSpace({ user }) {
   const { data: loadedData, error, connected, refresh } = useLoveData(user.id);
   const [tab, setTab] = useState("today");
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("love-dark-mode") === "1");
+  useEffect(() => {
+    document.documentElement.dataset.theme = darkMode ? "dark" : "light";
+    localStorage.setItem("love-dark-mode", darkMode ? "1" : "0");
+  }, [darkMode]);
   const membership = loadedData?.love_members.find(
     (member) => member.user_id === user.id,
   );
@@ -381,6 +386,9 @@ function LoveSpace({ user }) {
         </a>
         <button className="text-button" disabled={busy} onClick={signOut}>
           Đăng xuất
+        </button>
+        <button className="text-button theme-toggle" onClick={() => setDarkMode((value) => !value)} aria-label="Đổi giao diện sáng tối">
+          {darkMode ? "☀️" : "🌙"}
         </button>
       </header>
       <main className="page-content">

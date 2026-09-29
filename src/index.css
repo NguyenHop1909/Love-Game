@@ -109,6 +109,23 @@ input[type="checkbox"] {
 input[type="file"] {
   max-width: 100%;
 }
+
+:root[data-theme="dark"] {
+  color: #f8eaf0;
+  background: #211b22;
+}
+:root[data-theme="dark"] body { background: #211b22; }
+:root[data-theme="dark"] .app-header { background: #2d242d; border-color: #463643; }
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .stat,
+:root[data-theme="dark"] .hero-card,
+:root[data-theme="dark"] .period-summary,
+:root[data-theme="dark"] .memory-card { background: #302630; border-color: #4b3948; color: #f8eaf0; }
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea { background: #271f27; color: #f8eaf0; border-color: #584251; }
+:root[data-theme="dark"] .tabs { background: #342a34; }
+:root[data-theme="dark"] .muted { color: #cbb5c2; }
 small {
   font-size: 0.8rem;
 }
