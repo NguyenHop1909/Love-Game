@@ -30,7 +30,7 @@ values (
   'couple-memories',
   'couple-memories',
   false,
-  5242880,
+  20971520,
   array['image/jpeg', 'image/png', 'image/webp']
 )
 on conflict (id) do update set
