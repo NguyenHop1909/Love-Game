@@ -129,6 +129,39 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
     }, "Đã xóa kỷ niệm.");
   };
 
+  const editMemory = async (memory) => {
+    const result = await Swal.fire({
+      title: "Sửa kỷ niệm",
+      html: '<input id="memory-title" class="swal2-input" placeholder="Tên kỷ niệm"><textarea id="memory-note" class="swal2-textarea" placeholder="Lời nhắn"></textarea><input id="memory-date" class="swal2-input" type="date">',
+      didOpen: () => {
+        document.getElementById("memory-title").value = memory.title;
+        document.getElementById("memory-note").value = memory.note || "";
+        document.getElementById("memory-date").value = memory.memory_date;
+      },
+      showCancelButton: true,
+      confirmButtonText: "Lưu thay đổi",
+      cancelButtonText: "Hủy",
+      preConfirm: () => ({
+        title: document.getElementById("memory-title").value.trim(),
+        note: document.getElementById("memory-note").value.trim(),
+        memory_date: document.getElementById("memory-date").value,
+      }),
+    });
+    if (!result.isConfirmed) return;
+    if (!result.value.title || !result.value.memory_date) {
+      await Swal.fire("Thiếu thông tin", "Vui lòng nhập tên và ngày kỷ niệm.", "info");
+      return;
+    }
+    run(async () => {
+      const { error } = await supabase
+        .from("couple_memories")
+        .update(result.value)
+        .eq("id", memory.id)
+        .eq("owner_id", userId);
+      if (error) throw error;
+    }, "Đã cập nhật kỷ niệm.");
+  };
+
   const monthLabel = new Date(`${month}-15T12:00:00+07:00`).toLocaleDateString(
     "vi-VN",
     { month: "long", year: "numeric", timeZone: "Asia/Ho_Chi_Minh" },
@@ -198,9 +231,10 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
                 <h3>{memory.title}</h3>
                 {memory.note && <p>{memory.note}</p>}
                 {memory.owner_id === userId && (
-                  <button className="text-button danger" disabled={busy} onClick={() => removeMemory(memory)}>
-                    Xóa kỷ niệm
-                  </button>
+                  <div className="button-row">
+                    <button className="text-button" disabled={busy} onClick={() => editMemory(memory)}>Sửa</button>
+                    <button className="text-button danger" disabled={busy} onClick={() => removeMemory(memory)}>Xóa kỷ niệm</button>
+                  </div>
                 )}
               </div>
             </article>

@@ -11,7 +11,7 @@ create table if not exists public.couple_memories (
 );
 
 alter table public.couple_memories enable row level security;
-grant select, insert, delete on public.couple_memories to authenticated;
+grant select, insert, update, delete on public.couple_memories to authenticated;
 
 drop policy if exists memories_read on public.couple_memories;
 create policy memories_read on public.couple_memories for select to authenticated
@@ -24,6 +24,11 @@ with check (public.love_role() is not null and owner_id = auth.uid());
 drop policy if exists memories_delete_own on public.couple_memories;
 create policy memories_delete_own on public.couple_memories for delete to authenticated
 using (public.love_role() is not null and owner_id = auth.uid());
+
+drop policy if exists memories_update_own on public.couple_memories;
+create policy memories_update_own on public.couple_memories for update to authenticated
+using (public.love_role() is not null and owner_id = auth.uid())
+with check (public.love_role() is not null and owner_id = auth.uid());
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
