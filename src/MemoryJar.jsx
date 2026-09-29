@@ -36,6 +36,7 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
   const [month, setMonth] = useState(localDate().slice(0, 7));
   const [album, setAlbum] = useState("all");
   const [showTrash, setShowTrash] = useState(false);
+  const [story, setStory] = useState(null);
   const [imageUrls, setImageUrls] = useState({});
   const monthly = useMemo(
     () =>
@@ -245,8 +246,8 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
           {groupedMonthly.map((memory) => (
             <article className="memory-card" key={memory.id}>
               <div className="memory-image-grid">
-                {memory.items.map((item) => imageUrls[item.image_path] ? (
-                  <img key={item.id} src={imageUrls[item.image_path]} alt={memory.title} loading="lazy" />
+                {memory.items.map((item, index) => imageUrls[item.image_path] ? (
+                  <img key={item.id} src={imageUrls[item.image_path]} alt={memory.title} loading="lazy" onClick={() => setStory({ memory, index })} />
                 ) : <div className="memory-placeholder" key={item.id}>Đang mở ảnh…</div>)}
               </div>
               <div className="memory-copy">
@@ -267,6 +268,18 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
         </div>
       ) : (
         <div className="card empty">Tháng này chưa có ảnh nào trong hũ.</div>
+      )}
+      {story && imageUrls[story.memory.items[story.index].image_path] && (
+        <div className="story-viewer" role="dialog" aria-modal="true" onClick={() => setStory(null)}>
+          <button className="story-close" onClick={() => setStory(null)} aria-label="Đóng">×</button>
+          <button className="story-nav story-prev" onClick={(event) => { event.stopPropagation(); setStory({ ...story, index: (story.index - 1 + story.memory.items.length) % story.memory.items.length }); }} aria-label="Ảnh trước">‹</button>
+          <img src={imageUrls[story.memory.items[story.index].image_path]} alt={story.memory.title} onClick={(event) => event.stopPropagation()} />
+          <button className="story-nav story-next" onClick={(event) => { event.stopPropagation(); setStory({ ...story, index: (story.index + 1) % story.memory.items.length }); }} aria-label="Ảnh sau">›</button>
+          <div className="story-caption" onClick={(event) => event.stopPropagation()}>
+            <strong>{story.memory.title}</strong><span>{displayDate(story.memory.memory_date)} · {ownerName(story.memory.owner_id)}</span>
+            {story.memory.note && <p>{story.memory.note}</p>}
+          </div>
+        </div>
       )}
     </section>
   );
