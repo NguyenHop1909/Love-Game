@@ -17,6 +17,39 @@ export function balanceOf(rows) {
   return raw === 9 ? 10 : raw;
 }
 
+export function sharedMoodStreak(entries, memberIds, today = localDate()) {
+  if (memberIds.length < 2) return 0;
+  const moodsByDay = new Map();
+  for (const entry of entries) {
+    if (entry.kind !== "mood" || !memberIds.includes(entry.owner_id)) continue;
+    const day = localDate(new Date(entry.created_at));
+    if (!moodsByDay.has(day)) moodsByDay.set(day, new Set());
+    moodsByDay.get(day).add(entry.owner_id);
+  }
+  const cursor = new Date(`${today}T12:00:00+07:00`);
+  if ((moodsByDay.get(today)?.size || 0) < memberIds.length)
+    cursor.setDate(cursor.getDate() - 1);
+  let streak = 0;
+  while ((moodsByDay.get(localDate(cursor))?.size || 0) >= memberIds.length) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+export function ticketTotalsSince(rows, since) {
+  return rows.reduce(
+    (totals, row) => {
+      if (row.date >= since) {
+        totals.reward += Number(row.reward_amount || 0);
+        totals.penalty += Number(row.penalty_amount || 0);
+      }
+      return totals;
+    },
+    { reward: 0, penalty: 0 },
+  );
+}
+
 export function nextRotation(previous, index, count) {
   if (!Number.isInteger(index) || count < 1 || index < 0 || index >= count)
     throw new Error("Kết quả vòng quay không hợp lệ.");

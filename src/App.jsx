@@ -14,6 +14,8 @@ import {
   formatAuditLog,
   localDate,
   memberRole,
+  sharedMoodStreak,
+  ticketTotalsSince,
   validQuizLink,
 } from "./lib/domain";
 import { useLoveData } from "./lib/useLoveData";
@@ -308,12 +310,43 @@ function LoveSpace({ user }) {
   );
   const ownTotal = balanceOf(ownLedger);
   const scoreTargetName = scorebookToScore === "em" ? "Công chúa" : "Anh Yêu";
+  const today = localDate();
+  const weekCursor = new Date(`${today}T12:00:00+07:00`);
+  weekCursor.setDate(weekCursor.getDate() - 6);
+  const weekStart = localDate(weekCursor);
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const allLedger = loadedData.rewards_penalties;
+  const anhTotal = balanceOf(
+    allLedger.filter((row) => (row.scorebook_id || "anh") === "anh"),
+  );
+  const emTotal = balanceOf(
+    allLedger.filter((row) => (row.scorebook_id || "anh") === "em"),
+  );
+  const moodStreak = sharedMoodStreak(
+    loadedData.couple_entries,
+    loadedData.love_members.map((member) => member.user_id),
+    today,
+  );
+  const weekTickets = ticketTotalsSince(allLedger, weekStart);
+  const monthTickets = ticketTotalsSince(allLedger, monthStart);
+  const allWaiting = loadedData.user_inventory.filter((gift) =>
+    ["Chờ hẹn", "Đã hẹn"].includes(gift.status),
+  );
+  const upcomingTasks = loadedData.quizzes
+    .filter((quiz) => quiz.status !== "COMPLETED" && quiz.due_date)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+  const weekMoods = loadedData.couple_entries.filter(
+    (entry) =>
+      entry.kind === "mood" &&
+      localDate(new Date(entry.created_at)) >= weekStart,
+  ).length;
+  const monthGifts = loadedData.user_inventory.filter(
+    (gift) =>
+      gift.status === "Đã sử dụng" &&
+      localDate(new Date(gift.created_at)) >= monthStart,
+  ).length;
   const settings = data.wheel_settings.find(
     (s) => s.id === (scorebook === "anh" ? 1 : 2),
-  );
-  const pending = data.quizzes.filter((q) => q.status !== "COMPLETED");
-  const waiting = data.user_inventory.filter((g) =>
-    ["Chờ hẹn", "Đã hẹn"].includes(g.status),
   );
   const tabs = [
     ["today", "☀️", "Hôm nay"],
@@ -409,27 +442,48 @@ function LoveSpace({ user }) {
               </span>
             </div>
             <div className="stats">
+              <button className="stat" onClick={() => setTab("history")}>
+                <span>💙 Điểm Anh Yêu</span>
+                <strong>{anhTotal}</strong>
+                <small>Điểm hiện tại của Anh</small>
+              </button>
+              <button className="stat" onClick={() => setTab("history")}>
+                <span>🌷 Điểm Công chúa</span>
+                <strong>{emTotal}</strong>
+                <small>Điểm hiện tại của Em</small>
+              </button>
+              <button className="stat" onClick={() => setTab("together")}>
+                <span>🔥 Chuỗi tâm trạng</span>
+                <strong>{moodStreak}</strong>
+                <small>ngày cả hai cùng chia sẻ</small>
+              </button>
               <button className="stat" onClick={() => setTab("gifts")}>
-                <span>🎟️ Phiếu hiện có</span>
-                <strong>{total}</strong>
-                <small>Số dư từ lịch sử thực tế</small>
+                <span>🎁 Quà đang chờ</span>
+                <strong>{allWaiting.length}</strong>
+                <small>Quà của cả hai sổ điểm</small>
               </button>
-              <button className="stat" onClick={() => setTab("tasks")}>
-                <span>🌱 Nhiệm vụ còn lại</span>
-                <strong>{pending.length}</strong>
-                <small>Cùng hoàn thành từng chút</small>
-              </button>
-              <button className="stat" onClick={() => setTab("gifts")}>
-                <span>🎁 Quà đang chờ hẹn</span>
-                <strong>{waiting.length}</strong>
-                <small>Chọn một ngày dành cho nhau</small>
-              </button>
+            </div>
+            <div className="period-summary">
+              <div>
+                <span>7 ngày gần đây</span>
+                <strong>
+                  +{weekTickets.reward} / −{weekTickets.penalty} phiếu
+                </strong>
+                <small>{weekMoods} lần chia sẻ tâm trạng</small>
+              </div>
+              <div>
+                <span>Tháng này</span>
+                <strong>
+                  +{monthTickets.reward} / −{monthTickets.penalty} phiếu
+                </strong>
+                <small>{monthGifts} món quà đã sử dụng</small>
+              </div>
             </div>
             <div className="two-columns">
               <section className="card stack">
-                <h3>Điều cần làm tiếp theo</h3>
-                {waiting.length ? (
-                  waiting.slice(0, 3).map((g) => (
+                <h3>Quà đang chờ hai đứa</h3>
+                {allWaiting.length ? (
+                  allWaiting.slice(0, 3).map((g) => (
                     <div className="entry" key={g.id}>
                       <strong>{g.prize_text}</strong>
                       <p>
@@ -447,37 +501,19 @@ function LoveSpace({ user }) {
                 </button>
               </section>
               <section className="card stack">
-                <h3>Một lời nhắn gần đây</h3>
-                {data.couple_entries.find((e) => e.kind === "mood") ? (
-                  (() => {
-                    const entry = data.couple_entries.find(
-                      (e) => e.kind === "mood",
-                    );
-                    return (
-                      <>
-                        <p className="quote">“{entry.title}”</p>
-                        <p>{entry.note}</p>
-                        <small className="muted">
-                          {
-                            data.love_members.find(
-                              (m) => m.user_id === entry.owner_id,
-                            )?.display_name
-                          }{" "}
-                          · {displayDate(entry.created_at)}
-                        </small>
-                      </>
-                    );
-                  })()
+                <h3>Nhiệm vụ sắp hết hạn</h3>
+                {upcomingTasks.length ? (
+                  upcomingTasks.slice(0, 3).map((quiz) => (
+                    <div className="entry" key={quiz.id}>
+                      <strong>Thử thách Kahoot</strong>
+                      <p>Hạn hoàn thành · {displayDate(quiz.due_date)}</p>
+                    </div>
+                  ))
                 ) : (
-                  <p className="empty">
-                    Hôm nay bạn thấy thế nào? Kể người thương nghe nhé.
-                  </p>
+                  <p className="empty">Chưa có nhiệm vụ nào được đặt hạn.</p>
                 )}
-                <button
-                  className="secondary"
-                  onClick={() => setTab("together")}
-                >
-                  Ghé góc chung
+                <button className="secondary" onClick={() => setTab("tasks")}>
+                  Xem nhiệm vụ
                 </button>
               </section>
             </div>
@@ -750,7 +786,8 @@ function QuizList({ quizzes, admin, userId, run, busy, notify, scorebook }) {
   const addQuiz = (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const link = new FormData(form).get("link").trim();
+    const values = new FormData(form);
+    const link = values.get("link").trim();
     run(async () => {
       if (!validQuizLink(link))
         throw new Error(
@@ -762,6 +799,7 @@ function QuizList({ quizzes, admin, userId, run, busy, notify, scorebook }) {
           link_kahoot: link,
           status: "PENDING",
           scorebook_id: scorebook,
+          due_date: values.get("due_date") || null,
         });
       if (error) throw error;
       form.reset();
@@ -809,7 +847,7 @@ function QuizList({ quizzes, admin, userId, run, busy, notify, scorebook }) {
     <section className="stack">
       <h2>Nhiệm vụ nhỏ mỗi ngày 🌱</h2>
       {admin && (
-        <form className="card actions" onSubmit={addQuiz}>
+        <form className="card form-grid" onSubmit={addQuiz}>
           <label className="grow">
             Link Kahoot
             <input
@@ -818,6 +856,10 @@ function QuizList({ quizzes, admin, userId, run, busy, notify, scorebook }) {
               required
               placeholder="https://kahoot.it/…"
             />
+          </label>
+          <label>
+            Hạn hoàn thành
+            <input name="due_date" type="date" min={localDate()} />
           </label>
           <button disabled={busy}>Giao nhiệm vụ</button>
         </form>
@@ -837,6 +879,9 @@ function QuizList({ quizzes, admin, userId, run, busy, notify, scorebook }) {
             </h3>
             <small>{displayDate(quiz.created_at)}</small>
           </div>
+          {quiz.due_date && (
+            <p className="muted">Hạn hoàn thành: {displayDate(quiz.due_date)}</p>
+          )}
           {validQuizLink(quiz.link_kahoot) ? (
             <a href={quiz.link_kahoot} target="_blank" rel="noreferrer">
               Mở bài Kahoot ↗

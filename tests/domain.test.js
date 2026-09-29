@@ -6,8 +6,33 @@ import {
   localDate,
   memberRole,
   nextRotation,
+  sharedMoodStreak,
+  ticketTotalsSince,
   validQuizLink,
 } from "../src/lib/domain.js";
+
+test("shared mood streak counts complete couple days and allows today to be pending", () => {
+  const entries = [
+    ["a", "2026-09-28T01:00:00Z"],
+    ["b", "2026-09-28T02:00:00Z"],
+    ["a", "2026-09-27T01:00:00Z"],
+    ["b", "2026-09-27T02:00:00Z"],
+  ].map(([owner_id, created_at]) => ({ kind: "mood", owner_id, created_at }));
+  assert.equal(sharedMoodStreak(entries, ["a", "b"], "2026-09-29"), 2);
+});
+
+test("period totals only include ledger rows on or after the boundary", () => {
+  assert.deepEqual(
+    ticketTotalsSince(
+      [
+        { date: "2026-09-01", reward_amount: 10, penalty_amount: 1 },
+        { date: "2026-08-31", reward_amount: 99, penalty_amount: 0 },
+      ],
+      "2026-09-01",
+    ),
+    { reward: 10, penalty: 1 },
+  );
+});
 
 test("Vietnam date stays correct before 07:00 and across year boundary", () => {
   assert.equal(localDate(new Date("2026-09-27T18:00:00Z")), "2026-09-28");

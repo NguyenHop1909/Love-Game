@@ -264,8 +264,36 @@ small {
 }
 .stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
+}
+.period-summary {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+.period-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 20px 22px;
+  background: linear-gradient(135deg, #fff, #fff5f7);
+  border: 1px solid #eee0e3;
+  border-radius: 20px;
+}
+.period-summary span {
+  color: #88526a;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.period-summary strong {
+  color: #a63859;
+  font-size: 1.15rem;
+}
+.period-summary small {
+  color: #806e77;
 }
 .stat {
   text-align: left;
@@ -569,6 +597,7 @@ footer {
     display: none;
   }
   .stats {
+    grid-template-columns: repeat(2, 1fr);
     gap: 8px;
   }
   .stat {
@@ -582,7 +611,8 @@ footer {
     font-size: 0.68rem;
   }
   .two-columns,
-  .form-grid {
+  .form-grid,
+  .period-summary {
     grid-template-columns: 1fr;
   }
   .login-card {
