@@ -137,8 +137,13 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
         .update({ deleted_at: new Date().toISOString() })
         .eq("id", memory.id)
         .eq("owner_id", userId);
-      if (error) throw error;
-    }, "Đã chuyển kỷ niệm vào thùng rác.");
+      if (!error) return;
+      if (!/deleted_at|schema cache|column/i.test(error.message || "")) throw error;
+      const fallback = await supabase.from("couple_memories").delete().eq("id", memory.id).eq("owner_id", userId);
+      if (fallback.error) throw fallback.error;
+      const { error: storageError } = await supabase.storage.from("couple-memories").remove([memory.image_path]);
+      if (storageError) throw storageError;
+    }, "Đã xóa kỷ niệm.");
   };
 
   const editMemory = async (memory) => {
