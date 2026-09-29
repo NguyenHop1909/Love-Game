@@ -600,23 +600,23 @@ function LoveSpace({ user }) {
                 <tbody>
                   {data.rewards_penalties.map((row) => (
                     <tr key={row.id}>
-                      <td>{displayDate(row.date)}</td>
-                      <td>
+                      <td data-label="Ngày">{displayDate(row.date)}</td>
+                      <td data-label="Thưởng / Đổi">
                         {Number(row.reward_amount) > 0 ? "+" : ""}
                         {row.reward_amount}
                       </td>
-                      <td>
+                      <td data-label="Phạt">
                         {Number(row.penalty_amount)
                           ? `−${row.penalty_amount}`
                           : "0"}
                       </td>
-                      <td>
+                      <td data-label="Lý do">
                         {row.reward_reason ||
                           row.penalty_reason ||
                           "Không có ghi chú"}
                       </td>
                       {admin && (
-                        <td>
+                        <td data-label="Thao tác">
                           <button
                             className="text-button"
                             disabled={busy}
@@ -675,17 +675,17 @@ function LoveSpace({ user }) {
                 <tbody>
                   {ownLedger.map((row) => (
                     <tr key={row.id}>
-                      <td>{displayDate(row.date)}</td>
-                      <td>
+                      <td data-label="Ngày">{displayDate(row.date)}</td>
+                      <td data-label="Thưởng / Đổi">
                         {Number(row.reward_amount) > 0 ? "+" : ""}
                         {row.reward_amount}
                       </td>
-                      <td>
+                      <td data-label="Phạt">
                         {Number(row.penalty_amount)
                           ? `−${row.penalty_amount}`
                           : "0"}
                       </td>
-                      <td>
+                      <td data-label="Lý do">
                         {row.reward_reason ||
                           row.penalty_reason ||
                           "Không có ghi chú"}

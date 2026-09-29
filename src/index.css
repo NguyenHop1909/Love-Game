@@ -512,7 +512,7 @@ footer {
 }
 @media (max-width: 600px) {
   .page-content {
-    padding: 24px 14px;
+    padding: 24px 14px calc(108px + env(safe-area-inset-bottom));
   }
   .app-header {
     padding: 12px 14px;
@@ -525,17 +525,39 @@ footer {
     align-items: flex-start;
   }
   .tabs {
-    position: sticky;
-    top: 6px;
-    z-index: 5;
-    gap: 2px;
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    z-index: 20;
+    gap: 3px;
+    margin: 0;
+    padding: 7px;
+    border: 1px solid #ead9dc;
+    border-radius: 22px;
+    box-shadow: 0 12px 36px #4b172d2b;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
   }
   .tabs button {
+    flex: 0 0 72px;
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    padding: 8px 10px;
-    font-size: 0.75rem;
+    min-height: 54px;
+    padding: 7px 5px;
+    border-radius: 16px;
+    font-size: 0.68rem;
+    line-height: 1.15;
+  }
+  .tabs button > span {
+    font-size: 1.08rem;
+  }
+  .tabs button.active {
+    box-shadow: 0 4px 14px #8031491c;
   }
   .card {
     padding: 20px;
@@ -568,6 +590,62 @@ footer {
   }
   .actions > button {
     flex-grow: 1;
+  }
+  .table-wrap {
+    overflow: visible;
+    padding: 14px;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+  .table-wrap table,
+  .table-wrap tbody,
+  .table-wrap tr,
+  .table-wrap td {
+    display: block;
+    width: 100%;
+  }
+  .table-wrap thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .table-wrap tbody {
+    display: grid;
+    gap: 12px;
+  }
+  .table-wrap tr {
+    padding: 14px 16px;
+    background: #fff;
+    border: 1px solid #eee0e3;
+    border-radius: 18px;
+    box-shadow: 0 5px 18px #74364808;
+  }
+  .table-wrap td {
+    display: grid;
+    grid-template-columns: minmax(92px, 0.42fr) 1fr;
+    gap: 12px;
+    min-width: 0;
+    padding: 8px 0;
+    border-bottom: 1px dashed #eee2e7;
+    overflow-wrap: anywhere;
+  }
+  .table-wrap td:last-child {
+    border-bottom: 0;
+  }
+  .table-wrap td::before {
+    content: attr(data-label);
+    color: #88526a;
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .table-wrap td[data-label="Thao tác"] {
+    align-items: center;
   }
 }
 @media (prefers-reduced-motion: reduce) {
