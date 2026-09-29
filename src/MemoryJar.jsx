@@ -84,6 +84,15 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
     };
   }, [monthly]);
 
+  useEffect(() => {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    memories.filter((memory) => memory.deleted_at && new Date(memory.deleted_at).getTime() < cutoff && memory.owner_id === userId).forEach((memory) => {
+      supabase.from("couple_memories").delete().eq("id", memory.id).eq("owner_id", userId).then(() => {
+        supabase.storage.from("couple-memories").remove([memory.image_path]);
+      });
+    });
+  }, [memories, userId]);
+
   const ownerName = (id) =>
     members.find((member) => member.user_id === id)?.display_name || "Người thương";
 
@@ -190,6 +199,17 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
     }, "Đã cập nhật kỷ niệm.");
   };
 
+  const permanentlyDelete = async (memory) => {
+    const result = await Swal.fire({ title: "Xóa vĩnh viễn?", text: "Ảnh sẽ không thể khôi phục.", icon: "warning", showCancelButton: true, confirmButtonText: "Xóa vĩnh viễn", cancelButtonText: "Hủy", confirmButtonColor: "#be4968" });
+    if (!result.isConfirmed) return;
+    return run(async () => {
+    const { error } = await supabase.from("couple_memories").delete().eq("id", memory.id).eq("owner_id", userId);
+    if (error) throw error;
+    const { error: storageError } = await supabase.storage.from("couple-memories").remove([memory.image_path]);
+    if (storageError) throw storageError;
+    }, "Đã xóa vĩnh viễn kỷ niệm.");
+  };
+
   const monthLabel = new Date(`${month}-15T12:00:00+07:00`).toLocaleDateString(
     "vi-VN",
     { month: "long", year: "numeric", timeZone: "Asia/Ho_Chi_Minh" },
@@ -279,6 +299,7 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
                     {showTrash ? (
                       <button className="text-button" disabled={busy} onClick={() => run(() => supabase.from("couple_memories").update({ deleted_at: null }).eq("id", memory.id).eq("owner_id", userId), "Đã khôi phục kỷ niệm.")}>Khôi phục</button>
                     ) : <button className="text-button danger" disabled={busy} onClick={() => removeMemory(memory)}>Xóa</button>}
+                    {showTrash && <button className="text-button danger" disabled={busy} onClick={() => permanentlyDelete(memory)}>Xóa vĩnh viễn</button>}
                   </div>
                 )}
               </div>
