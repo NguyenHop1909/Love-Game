@@ -4,6 +4,7 @@ import { displayDate, localDate } from "./lib/domain";
 import { supabase } from "./supabaseClient";
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+const ALBUM_PRESETS = ["Sinh nhật anh", "Sinh nhật em", "Du lịch", "Đi chơi", "Ăn uống"];
 
 const prepareImage = (file) =>
   new Promise((resolve, reject) => {
@@ -150,12 +151,14 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
   const editMemory = async (memory) => {
     const result = await Swal.fire({
       title: "Sửa kỷ niệm",
-      html: '<input id="memory-title" class="swal2-input" placeholder="Tên kỷ niệm"><textarea id="memory-note" class="swal2-textarea" placeholder="Lời nhắn"></textarea><input id="memory-date" class="swal2-input" type="date"><input id="memory-album" class="swal2-input" maxlength="40" placeholder="Album / chủ đề">',
+      html: '<input id="memory-title" class="swal2-input" placeholder="Tên kỷ niệm"><textarea id="memory-note" class="swal2-textarea" placeholder="Lời nhắn"></textarea><input id="memory-date" class="swal2-input" type="date"><select id="memory-album" class="swal2-select"><option>Sinh nhật anh</option><option>Sinh nhật em</option><option>Du lịch</option><option>Đi chơi</option><option>Ăn uống</option><option value="custom">+ Thêm chủ đề mới</option></select><input id="memory-custom-album" class="swal2-input" maxlength="40" placeholder="Nhập chủ đề riêng…">',
       didOpen: () => {
         document.getElementById("memory-title").value = memory.title;
         document.getElementById("memory-note").value = memory.note || "";
         document.getElementById("memory-date").value = memory.memory_date;
-        document.getElementById("memory-album").value = memory.album || "Khác";
+        const preset = ALBUM_PRESETS.includes(memory.album) ? memory.album : "custom";
+        document.getElementById("memory-album").value = preset;
+        document.getElementById("memory-custom-album").value = preset === "custom" ? (memory.album || "") : "";
       },
       showCancelButton: true,
       confirmButtonText: "Lưu thay đổi",
@@ -164,7 +167,7 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
         title: document.getElementById("memory-title").value.trim(),
         note: document.getElementById("memory-note").value.trim(),
         memory_date: document.getElementById("memory-date").value,
-        album: document.getElementById("memory-album").value.trim() || "Khác",
+        album: document.getElementById("memory-album").value === "custom" ? document.getElementById("memory-custom-album").value.trim() : document.getElementById("memory-album").value,
       }),
     });
     if (!result.isConfirmed) return;
