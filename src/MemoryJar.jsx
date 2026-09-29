@@ -37,6 +37,7 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
   const [album, setAlbum] = useState("all");
   const [showTrash, setShowTrash] = useState(false);
   const [story, setStory] = useState(null);
+  const [albumPreset, setAlbumPreset] = useState("Du lịch");
   const [imageUrls, setImageUrls] = useState({});
   const monthly = useMemo(
     () =>
@@ -106,7 +107,7 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
             owner_id: userId,
             memory_date: values.get("memory_date"),
         title: values.get("title").trim(),
-        album: values.get("album")?.trim() || "Khác",
+        album: values.get("album") === "custom" ? values.get("custom_album")?.trim() : values.get("album"),
             note: values.get("note").trim(),
             image_path: imagePath,
           });
@@ -215,7 +216,10 @@ export default function MemoryJar({ memories, members, userId, busy, run }) {
           </label>
           <label>
             Album / chủ đề
-            <input name="album" maxLength={40} placeholder="Du lịch, món ăn…" />
+            <select name="album" value={albumPreset} onChange={(event) => setAlbumPreset(event.target.value)}>
+              <option>Sinh nhật anh</option><option>Sinh nhật em</option><option>Du lịch</option><option>Đi chơi</option><option>Ăn uống</option><option value="custom">+ Thêm chủ đề mới</option>
+            </select>
+            {albumPreset === "custom" && <input name="custom_album" maxLength={40} placeholder="Nhập chủ đề riêng…" required />}
           </label>
           <label>
             Ảnh kỷ niệm
