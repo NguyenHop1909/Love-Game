@@ -354,7 +354,7 @@ function LoveSpace({ user }) {
     ["tasks", "🌱", "Nhiệm vụ"],
     ["gifts", "🎁", "Quà"],
     ["together", "💌", "Góc chung"],
-    ["memories", "📸", "Kỷ niệm"],
+    ["memories", "📸", "Hủ Kỷ niệm"],
     ["history", "📖", "Chấm điểm"],
   ];
   if (admin) tabs.push(["settings", "⚙️", "Cài đặt vòng quay"]);
